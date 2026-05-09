@@ -1,0 +1,97 @@
+import { groupsCol, usersCol, buildGroupDoc } from "@/lib/collections";
+import { FieldValue, listSnap } from "@/lib/firestore";
+import { withAuth, withPublic, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
+
+/**
+ * GET /api/groups
+ *  ?mine=true  → uniquement les groupes dont je suis membre  (auth requis)
+ *  ?mine=false (par défaut) → tous les groupes actifs (page Explore, public)
+ *
+ * Tri par updatedAt desc → les groupes récemment actifs apparaissent en haut.
+ */
+export const GET = withPublic(async (req) => {
+  const url = new URL(req.url);
+  const mine = url.searchParams.get("mine") === "true";
+
+  // ── Mode "mes groupes" : filtre par members array-contains uid ──
+  if (mine) {
+    // Auth obligatoire pour ce mode (on extrait l'uid manuellement
+    // car le wrapper public ne le fait pas, et on veut garder ce route
+    // public pour le mode Explore)
+    const { verifyAuth } = await import("@/lib/verifyAdmin");
+    const v = await verifyAuth(req);
+    if (v.error) return jsonError(v.error, v.status);
+
+    const snap = await groupsCol()
+      .where("members", "array-contains", v.uid)
+      .where("status", "==", "active")
+      .orderBy("updatedAt", "desc")
+      .get();
+
+    return jsonOk({ groups: listSnap(snap).map(formatGroup) });
+  }
+
+  // ── Mode public : tous les groupes actifs (Explore) ──
+  const snap = await groupsCol()
+    .where("status", "==", "active")
+    .orderBy("updatedAt", "desc")
+    .get();
+
+  return jsonOk({ groups: listSnap(snap).map(formatGroup) });
+}, "GROUPS_LIST");
+
+function formatGroup(g) {
+  return {
+    id: g.id,
+    name: g.name,
+    subject: g.subject,
+    description: g.description,
+    tags: g.tags,
+    memberCount: g.memberCount,
+    maxMembers: g.maxMembers,
+    leaderId: g.leaderId,
+    leaderName: g.leaderName,
+    members: g.members,
+    questions: g.questions,
+    rules: g.rules,
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+  };
+}
+
+// POST /api/groups — créer un groupe
+export const POST = withAuth(async (req, _ctx, { uid, user }) => {
+  const body = await safeJson(req);
+  const { name, subject, description, rules, tags, questions, maxMembers } = body;
+  if (!name || !subject) return jsonError("Missing name or subject");
+  if (!user) return jsonError("User not found", 404);
+
+  const doc = await groupsCol().add(
+    buildGroupDoc({
+      name,
+      subject,
+      description,
+      rules,
+      tags,
+      questions,
+      maxMembers,
+      leaderId: uid,
+      leaderName: user.fullName,
+      members: [uid],
+      memberCount: 1,
+      membersList: [{ uid, name: user.fullName, role: "Leader" }],
+    })
+  );
+
+  // Ajouter le groupId au tableau user.groups
+  const userRef = usersCol().doc(uid);
+  const userSnap = await userRef.get();
+  if (userSnap.exists) {
+    await userRef.update({ groups: FieldValue.arrayUnion(doc.id) });
+  } else {
+    const q = await usersCol().where("uid", "==", uid).limit(1).get();
+    if (!q.empty) await q.docs[0].ref.update({ groups: FieldValue.arrayUnion(doc.id) });
+  }
+
+  return jsonOk({ id: doc.id, success: true }, 201);
+}, "GROUPS_CREATE");

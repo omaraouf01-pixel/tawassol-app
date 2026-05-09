@@ -1,0 +1,125 @@
+rules_version = '2';
+
+// ════════════════════════════════════════════════════════════════
+//  Firestore Security Rules — TSSWAL
+// ════════════════════════════════════════════════════════════════
+//  Stratégie :
+//   - Toutes les ÉCRITURES passent par les API routes (firebase-admin
+//     bypass les rules), donc les rules ne gèrent que la LECTURE
+//     directe par le client (onSnapshot, getDocs).
+//   - On autorise la lecture pour les users authentifiés sur les
+//     ressources qui les concernent.
+//
+//  Discovery :
+//   - ANY authenticated user can list/get groups (for Discovery +
+//     Explore pages). This enables students to browse and discover
+//     new groups to join.
+//   - ONLY group members can read messages and resources within a
+//     group. Non-members see group metadata but cannot access content.
+//   - Join requests are created via API routes (firebase-admin bypass).
+//     Read access is limited to the requester and the group leader.
+//
+//  Déploiement : firebase deploy --only firestore:rules
+// ════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ──────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+    function isMemberOfGroup(groupId) {
+      return isSignedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+    }
+
+    // ─── users ────────────────────────────────────────────────
+    // Un user lit son propre profil. Admin lit tout.
+    // Toutes les écritures via API (firebase-admin → bypass).
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
+    // ─── groups (DISCOVERY) ──────────────────────────────────
+    // Lecture : ANY authenticated user can list/get groups.
+    // This powers the Discovery Grid and Explore page — students
+    // can browse all active groups even before joining.
+    // Écriture : interdite en direct (passer par API routes).
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+
+      // Sub-collection messages (defense-in-depth):
+      // Only group members can read messages nested under a group.
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          isAdmin() ||
+          request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members
+        );
+        allow write: if false;
+      }
+    }
+
+    // ─── messages (top-level) ────────────────────────────────
+    // Lecture : uniquement les membres du groupe (ou admin).
+    // Écriture : interdite en direct (passer par /api/groups/[id]/messages).
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        isMemberOfGroup(resource.data.groupId)
+      );
+      allow write: if false;
+    }
+
+    // ─── resources ────────────────────────────────────────────
+    // Only group members can access shared resources.
+    match /resources/{resourceId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        isMemberOfGroup(resource.data.groupId)
+      );
+      allow write: if false;
+    }
+
+    // ─── posts (feed public) ──────────────────────────────────
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ─── notifications ────────────────────────────────────────
+    // Chaque user lit uniquement les siennes.
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        request.auth.uid == resource.data.userId
+      );
+      allow write: if false;
+    }
+
+    // ─── joinRequests ─────────────────────────────────────────
+    // Read: the user who created the request, or the group leader.
+    // Write: via API routes only (firebase-admin bypass).
+    match /joinRequests/{requestId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        request.auth.uid == resource.data.userId ||
+        request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.leaderId
+      );
+      allow write: if false;
+    }
+
+    // ─── Default deny ─────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

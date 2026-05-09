@@ -1,0 +1,30 @@
+{
+  "name": "tawassol",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "cloudinary": "^2.10.0",
+    "emoji-picker-react": "^4.19.1",
+    "firebase": "^10.12.0",
+    "firebase-admin": "^12.7.0",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^1.14.0",
+    "next": "14.2.3",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-icons": "^5.0.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3"
+  }
+}
