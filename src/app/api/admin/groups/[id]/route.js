@@ -12,7 +12,7 @@ export async function DELETE(request, { params }) {
     const groupId = params.id;
     const batch = db.batch();
 
-    // 1. Supprimer le groupe
+    // 1. Supprimer le groupe (les requêtes en attente sont embarquées et seront supprimées avec)
     batch.delete(groupsCol().doc(groupId));
 
     // 2. Supprimer les messages
@@ -23,13 +23,14 @@ export async function DELETE(request, { params }) {
     const resSnap = await resourcesCol().where("groupId", "==", groupId).get();
     resSnap.docs.forEach((d) => batch.delete(d.ref));
 
-    // 4. Supprimer les join requests
+    // 4. Nettoyer l'ancienne collection joinRequests au cas où
     const jrSnap = await joinRequestsCol().where("groupId", "==", groupId).get();
     jrSnap.docs.forEach((d) => batch.delete(d.ref));
 
     await batch.commit();
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, message: "Groupe supprimé avec succès." });
   } catch (e) {
+    console.error("Erreur lors de la suppression:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
