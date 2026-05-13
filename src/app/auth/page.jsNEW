@@ -1,0 +1,227 @@
+"use client";
+
+import React, { useState, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
+import {
+  Camera, Mail, Lock, User, Hash, Eye,
+  EyeOff, AlertCircle, Loader2, CheckCircle, ChevronLeft
+} from "lucide-react";
+
+// ─── الاستيرادات الحقيقية ───
+import { auth, firestore } from "@/lib/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
+
+// ─── الشعار الموحد ───
+import TsswalLogo from "@/components/TsswalLogo";
+
+const SketchLine = () => (
+  <svg width="120" height="8" viewBox="0 0 200 20" fill="none" className="absolute -bottom-2 left-0 text-brand-indigo/40 pointer-events-none">
+    <motion.path
+      d="M5 15C60 5 140 5 195 15"
+      stroke="currentColor" strokeWidth="4" strokeLinecap="round"
+      initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
+      transition={{ duration: 1.5, delay: 0.5 }}
+    />
+  </svg>
+);
+
+export default function AuthPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState("login"); // login | register
+  const [loading, setLoading] = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
+  const [error, setError] = useState("");
+
+  const [formData, setFormData] = useState({
+    matricule: "",
+    password: "",
+    fullName: "",
+    email: ""
+  });
+  const [idCard, setIdCard] = useState(null);
+  const fileRef = useRef(null);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    if (loading) return;
+    setError("");
+    setLoading(true);
+
+    try {
+      if (mode === "register") {
+        if (!idCard) throw new Error("يرجى رفع صورة البطاقة الجامعية للتحقق.");
+
+        // 1. فحص الرقم الجامعي
+        const mQuery = query(collection(firestore, "users"), where("matricule", "==", formData.matricule));
+        const mSnap = await getDocs(mQuery);
+        if (!mSnap.empty) throw new Error("هذا الرقم الجامعي مسجل مسبقاً.");
+
+        // 2. إنشاء الحساب
+        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        const user = userCredential.user;
+
+        // 3. رفع الصورة (Cloudinary)
+        const fd = new FormData();
+        fd.append("file", idCard);
+        fd.append("folder", "tawassol/idCards");
+        const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.url) throw new Error("فشل في مزامنة وثيقة الهوية.");
+
+        // 4. حفظ البيانات بالحالة الأولية (Pending)
+        await setDoc(doc(firestore, "users", user.uid), {
+          uid: user.uid,
+          fullName: formData.fullName,
+          email: formData.email,
+          matricule: formData.matricule,
+          studentCardUrl: uploadData.url,
+          role: 'student',
+          status: 'pending',
+          onboarded: false,
+          createdAt: serverTimestamp()
+        });
+
+        router.push("/pending");
+
+      } else {
+        // تسجيل الدخول بالرقم الجامعي
+        const q = query(collection(firestore, "users"), where("matricule", "==", formData.matricule));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) throw new Error("لم يتم العثور على حساب مرتبط بهذا الرقم.");
+
+        const userData = querySnapshot.docs[0].data();
+        await signInWithEmailAndPassword(auth, userData.email, formData.password);
+
+        // التوجيه بناءً على الحالة
+        if (userData.role === "admin") router.push("/admin");
+        else if (userData.status === "pending") router.push("/pending");
+        else if (userData.status === "approved_onboarding") router.push("/onboarding");
+        else if (userData.status === "active") router.push("/hub");
+      }
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div dir="ltr" className="min-h-screen bg-background text-foreground flex flex-col font-sans selection:bg-brand-indigo/30 relative overflow-x-hidden text-left">
+
+      {/* ─── Header ─── */}
+      <header className="relative z-50 px-8 py-6 flex justify-between items-center max-w-[1400px] w-full mx-auto">
+        <div className="flex items-center gap-4 cursor-pointer group" onClick={() => router.push('/')}>
+          <TsswalLogo size={24} className="text-white group-hover:text-brand-indigo transition-colors" />
+          <div className="flex flex-col border-l border-white/10 pl-4">
+            <span className="text-[16px] font-black tracking-[0.2em] leading-none text-white uppercase font-serif italic">Twassel</span>
+            <span className="text-[7px] font-bold text-brand-indigo uppercase tracking-widest mt-1.5 italic">Gateway Portal</span>
+          </div>
+        </div>
+        <button onClick={() => router.push('/')} className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.3em] text-slate-600 hover:text-white transition-all bg-transparent border-none cursor-pointer">
+          <ChevronLeft size={14} /> Home
+        </button>
+      </header>
+
+      {/* ─── Main Content (Full Screen Layout) ─── */}
+      <main className="relative z-10 flex-1 flex flex-col lg:flex-row max-w-[1400px] w-full mx-auto px-8 gap-20 items-center pb-20 mt-10">
+
+        {/* Left Side: Typography */}
+        <div className="hidden lg:flex flex-col w-[50%] pr-16 text-left">
+          <AnimatePresence mode="wait">
+            <motion.div key={mode} initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
+              <h1 className="text-[64px] xl:text-[90px] font-serif font-black tracking-tighter leading-[0.8] italic text-white">
+                {mode === "login" ? (<>The <span className="text-brand-indigo/40">Portal</span>. <br /> Entrance.</>) : (<>The <span className="text-brand-indigo/40">Join</span>. <br /> Initiation.</>)}
+              </h1>
+              <div className="relative h-2 mt-4"><SketchLine /></div>
+              <p className="text-base xl:text-lg text-slate-500 max-w-sm mt-12 leading-relaxed font-medium">
+                {mode === "login" ? "Synchronize your academic node through the secure gateway." : "Start your journey within the Oran University Node Network."}
+              </p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Right Side: Auth Form */}
+        <div className="flex-1 w-full max-w-md">
+          <div className="flex gap-10 mb-12 items-baseline border-b border-white/5 pb-6">
+            <button onClick={() => setMode("login")} className={`text-3xl font-serif font-black italic transition-all relative border-none bg-transparent cursor-pointer ${mode === 'login' ? 'text-white' : 'text-slate-800'}`}>
+              Sign In {mode === 'login' && <motion.div layoutId="tab-bar" className="absolute -bottom-[25px] left-0 w-full h-1 bg-brand-indigo shadow-glow" />}
+            </button>
+            <button onClick={() => setMode("register")} className={`text-3xl font-serif font-black italic transition-all relative border-none bg-transparent cursor-pointer ${mode === 'register' ? 'text-white' : 'text-slate-800'}`}>
+              Register {mode === 'register' && <motion.div layoutId="tab-bar" className="absolute -bottom-[25px] left-0 w-full h-1 bg-brand-indigo shadow-glow" />}
+            </button>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-8">
+            {error && <div className="bg-rose-500/10 border border-rose-500/20 text-rose-500 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 animate-shake"><AlertCircle size={16} /> {error}</div>}
+
+            <div className="space-y-7">
+              {/* Matricule */}
+              <div className="space-y-2 group">
+                <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-700 group-focus-within:text-brand-indigo transition-colors">Academic Matricule</label>
+                <div className="relative">
+                  <Hash className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-800" size={16} />
+                  <input type="text" name="matricule" required value={formData.matricule} onChange={handleInputChange} className="w-full bg-transparent border-b border-white/5 py-4 pl-8 text-base font-bold focus:border-brand-indigo transition-all outline-none text-white placeholder:text-slate-900" placeholder="2026-ST-XXX" />
+                </div>
+              </div>
+
+              {mode === "register" && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-7">
+                  {/* Full Name */}
+                  <div className="space-y-2 group">
+                    <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-700 group-focus-within:text-brand-indigo transition-colors">Full Name</label>
+                    <div className="relative">
+                      <User className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-800" size={16} />
+                      <input type="text" name="fullName" required value={formData.fullName} onChange={handleInputChange} className="w-full bg-transparent border-b border-white/5 py-4 pl-8 text-base font-bold focus:border-brand-indigo transition-all outline-none text-white" placeholder="John Doe" />
+                    </div>
+                  </div>
+                  {/* Email */}
+                  <div className="space-y-2 group">
+                    <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-700 group-focus-within:text-brand-indigo transition-colors">Institutional Email</label>
+                    <div className="relative">
+                      <Mail className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-800" size={16} />
+                      <input type="email" name="email" required value={formData.email} onChange={handleInputChange} className="w-full bg-transparent border-b border-white/5 py-4 pl-8 text-base font-bold focus:border-brand-indigo transition-all outline-none text-white" placeholder="scholar@univ.dz" />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Password */}
+              <div className="space-y-2 group">
+                <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-700 group-focus-within:text-brand-indigo transition-colors">Access Key</label>
+                <div className="relative">
+                  <Lock className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-800" size={16} />
+                  <input type={showPwd ? "text" : "password"} name="password" required value={formData.password} onChange={handleInputChange} className="w-full bg-transparent border-b border-white/5 py-4 pl-8 pr-10 text-base font-bold focus:border-brand-indigo transition-all outline-none text-white placeholder:text-slate-900" placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-700 hover:text-white transition-colors bg-transparent border-none cursor-pointer">
+                    {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* ID Card Upload */}
+              {mode === "register" && (
+                <div className="pt-4">
+                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => setIdCard(e.target.files[0])} />
+                  <button type="button" onClick={() => fileRef.current?.click()} className={`w-full flex items-center justify-between p-5 rounded-[1.5rem] border-2 border-dashed transition-all cursor-pointer ${idCard ? 'border-brand-indigo bg-brand-indigo/5 text-brand-indigo shadow-glow' : 'border-white/5 bg-white/[0.01] hover:bg-white/5 text-slate-500'}`}>
+                    <span className="text-[10px] font-black uppercase tracking-widest">{idCard ? idCard.name : "Upload University ID Card"}</span>
+                    {idCard ? <CheckCircle size={18} /> : <Camera size={18} />}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button disabled={loading} type="submit" className="w-full py-5 rounded-[1.5rem] bg-white text-black font-black text-[11px] uppercase tracking-[0.4em] hover:bg-brand-indigo hover:text-white transition-all shadow-premium disabled:opacity-30 border-none cursor-pointer">
+              {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : mode === "login" ? "Enter Sanctuary" : "Initialize Identity"}
+            </button>
+          </form>
+        </div>
+      </main>
+    </div>
+  );
+}

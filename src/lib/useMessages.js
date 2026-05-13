@@ -1,87 +1,77 @@
-"use client";
-import { useState, useEffect, useRef } from "react";
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  limit as fbLimit,
-  onSnapshot,
-} from "firebase/firestore";
-import { firestore } from "./firebase";
+import { useState, useEffect } from "react";
+import { firestore as db } from "./firebase";
+import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
 
 /**
- * ════════════════════════════════════════════════════════════════
- *  useMessages — listener real-time pour les messages d'un groupe
- * ════════════════════════════════════════════════════════════════
- *  Branchement direct sur Firestore via onSnapshot. Pas de polling.
- *  Met à jour la liste automatiquement quand quelqu'un écrit un message.
- *
- *  Usage :
- *    const { messages, loading, error } = useMessages(groupId);
- *
- *  Notes :
- *   - Les Firestore Security Rules doivent autoriser le user à lire
- *     les messages de ses groupes (voir firestore.rules).
- *   - Quand le composant est démonté, le listener se désabonne
- *     automatiquement (return unsubscribe dans useEffect).
- * ════════════════════════════════════════════════════════════════
+ * هوك احترافي لجلب الرسائل لحظياً مع منطق التجميع
  */
-export function useMessages(groupId, opts = {}) {
+export function useMessages(groupId) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const mountedRef = useRef(true);
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+    // اختبار الصمامات: هل المعرف يصل للهوك؟
+    console.log("🔍 اختبار المرحلة 2: قيمة groupId هي:", groupId);
 
-  useEffect(() => {
     if (!groupId) {
       setMessages([]);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    try {
+      // 1. تحديد المجموعة الرئيسية
+      const messagesCol = collection(db, "messages");
 
-    const max = opts.limit || 200;
-    const q = query(
-      collection(firestore, "messages"),
-      where("groupId", "==", groupId),
-      orderBy("createdAt", "asc"),
-      fbLimit(max)
-    );
+      // 2. بناء الاستعلام
+      const q = query(
+        messagesCol,
+        where("groupId", "==", groupId),
+        orderBy("createdAt", "asc")
+      );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snap) => {
-        if (!mountedRef.current) return;
-        const list = snap.docs.map((d) => {
-          const data = d.data();
+      // 3. فتح المستمع اللحظي
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        console.log(`📦 المرحلة 2 نجحت: تم العثور على ${snapshot.docs.length} رسالة`);
+
+        const rawMessages = snapshot.docs.map((doc) => {
+          const data = doc.data();
           return {
-            id: d.id,
+            id: doc.id,
             ...data,
-            // Convertir Timestamp Firestore en ISO string pour le frontend
-            createdAt: data.createdAt?.toDate?.().toISOString() || null,
+            createdAt: data.createdAt?.toDate() || new Date(),
           };
         });
-        setMessages(list);
+
+        // 4. منطق التجميع (Grouping)
+        const grouped = rawMessages.map((m, index) => {
+          const prevMessage = rawMessages[index - 1];
+          const isSameUser = prevMessage && prevMessage.uid === m.uid;
+          const isRecent = prevMessage && (m.createdAt - prevMessage.createdAt) < 5 * 60 * 1000;
+
+          return {
+            ...m,
+            _grouped: isSameUser && isRecent
+          };
+        });
+
+        setMessages(grouped);
         setLoading(false);
-      },
-      (err) => {
-        console.error("[useMessages] listener error:", err);
-        if (!mountedRef.current) return;
+      }, (err) => {
+        console.error("❌ خطأ في استماع Firestore:", err);
         setError(err.message);
         setLoading(false);
-      }
-    );
+      });
 
-    return () => unsubscribe();
-  }, [groupId, opts.limit]);
+      return () => unsubscribe();
+    } catch (err) {
+      // ✅ السطر المُصحح هنا:
+      console.error("❌ فشل إعداد المواسير:", err);
+      setError(err.message);
+      setLoading(false);
+    }
+  }, [groupId]);
 
   return { messages, loading, error };
 }

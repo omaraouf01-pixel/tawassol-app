@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyAuth, verifyAdmin } from "./verifyAdmin";
+import { adminInitError } from "./firestore";
 
 /**
  * ════════════════════════════════════════════════════════════════
@@ -54,6 +55,16 @@ function withTimeout(promise, ms, label) {
 export function withErrorHandling(handler, label = "API") {
   return async (req, ctx) => {
     const reqId = Math.random().toString(36).slice(2, 8);
+
+    // ── Fail-fast if Firebase Admin never initialized ──
+    if (adminInitError) {
+      console.error(`[${label}#${reqId}] Firebase Admin not initialized: ${adminInitError}`);
+      return jsonError(
+        "Server configuration error — Firebase Admin failed to initialize. Check server logs.",
+        503
+      );
+    }
+
     try {
       const result = await withTimeout(handler(req, ctx), SERVER_TIMEOUT_MS, label);
       // Garde-fou ultime : si le handler oublie de return, on force une réponse

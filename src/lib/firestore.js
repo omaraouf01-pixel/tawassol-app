@@ -1,73 +1,109 @@
-// ════════════════════════════════════════════════════════════════
-// Firebase Admin (Firestore) — TSSWAL
-// ════════════════════════════════════════════════════════════════
-// Remplace MongoDB / Mongoose. Toutes les données passent par Firestore.
-// Utilise firebase-admin côté serveur (API Routes seulement).
-// ════════════════════════════════════════════════════════════════
-
 import admin from "firebase-admin";
 
 /**
- * Service account credentials.
- * Utilise UNIQUEMENT les variables d'environnement (Vercel friendly).
+ * TAWASSOL FIREBASE ADMIN ENGINE
+ * -----------------------------
+ * هذا الملف يعمل على جهة السيرفر فقط (Server-side).
+ * يُستخدم في الـ API Routes والـ Server Actions.
  */
+
+let adminInitError = null;
+
 function getCredentials() {
-  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-    return {
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    };
+  const config = {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY,
+  };
+
+  const missing = Object.keys(config).filter((key) => !config[key]);
+
+  if (missing.length) {
+    throw new Error(`[Firebase Admin] ⛔ Missing Environment Variables: ${missing.join(", ")}`);
   }
 
-  throw new Error(
-    "Service Account manquant. Vous devez définir les variables d'environnement FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, et FIREBASE_PRIVATE_KEY."
-  );
+  // معالجة المفتاح الخاص لضمان قراءة السطور الجديدة بشكل صحيح
+  const formattedPrivateKey = config.privateKey.replace(/\\n/g, "\n");
+
+  if (!formattedPrivateKey.includes("-----BEGIN PRIVATE KEY-----")) {
+    throw new Error("[Firebase Admin] ❌ FIREBASE_PRIVATE_KEY format is invalid.");
+  }
+
+  return {
+    projectId: config.projectId,
+    clientEmail: config.clientEmail,
+    privateKey: formattedPrivateKey,
+  };
 }
 
-// Singleton — Next.js hot-reload safe
+// ─── Singleton Pattern: التأكد من عدم تكرار تهيئة التطبيق ───
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(getCredentials()),
-  });
-  console.log("[Firestore] Connected successfully");
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(getCredentials()),
+    });
+    console.log("[Firebase Admin] ✅ Node Engine Connected Successfully");
+  } catch (e) {
+    adminInitError = e.message;
+    console.error("[Firebase Admin] ❌ CRITICAL INITIALIZATION ERROR:", e.message);
+  }
 }
 
+// تصدير المحركات الأساسية
 export const db = admin.firestore();
 export const adminAuth = admin.auth();
 export const FieldValue = admin.firestore.FieldValue;
 export const Timestamp = admin.firestore.Timestamp;
-export { admin };
+export { admin, adminInitError };
 
-// ─── Helpers ────────────────────────────────────────────────────
+// ─── DATA SERIALIZATION HELPERS ───
+// هذه الدوال تضمن تحويل بيانات Firestore "المعقدة" إلى كائنات JSON بسيطة للـ Front-end
 
 /**
- * Convertit un DocumentSnapshot en objet JSON sérialisable
- * avec son ID + conversion des Timestamps en ISO string.
+ * تحويل وثيقة واحدة من Firestore إلى Object بسيط
  */
 export function snapToObj(doc) {
   if (!doc.exists) return null;
   const data = doc.data();
-  return { id: doc.id, ...convertTimestamps(data) };
+  return {
+    id: doc.id,
+    ...convertTimestamps(data)
+  };
 }
 
 /**
- * Convertit récursivement les Firestore Timestamps en ISO strings
- * (pour rester compatible avec le frontend qui s'attend à des strings).
+ * تحويل مصفوفة من الوثائق (QuerySnapshot) إلى مصفوفة Object
+ */
+export function listSnap(snapshot) {
+  if (snapshot.empty) return [];
+  return snapshot.docs.map((d) => snapToObj(d));
+}
+
+/**
+ * دالة ذكية لتحويل الـ Timestamps الخاصة بـ Firebase إلى ISO Strings
+ * تعمل بشكل متداخل (Recursive) لمعالجة الكائنات والمصفوفات العميقة.
  */
 export function convertTimestamps(obj) {
   if (obj === null || obj === undefined) return obj;
-  if (obj instanceof admin.firestore.Timestamp) return obj.toDate().toISOString();
-  if (Array.isArray(obj)) return obj.map(convertTimestamps);
+
+  // إذا كان Timestamp مباشر
+  if (obj instanceof admin.firestore.Timestamp) {
+    return obj.toDate().toISOString();
+  }
+
+  // إذا كانت مصفوفة، نعالج كل عنصر فيها
+  if (Array.isArray(obj)) {
+    return obj.map(convertTimestamps);
+  }
+
+  // إذا كان كائن (Object)، نعالج المفاتيح الخاصة به
   if (typeof obj === "object") {
     const out = {};
-    for (const k of Object.keys(obj)) out[k] = convertTimestamps(obj[k]);
+    for (const [key, value] of Object.entries(obj)) {
+      out[key] = convertTimestamps(value);
+    }
     return out;
   }
-  return obj;
-}
 
-/** Liste un QuerySnapshot en tableau d'objets */
-export function listSnap(snapshot) {
-  return snapshot.docs.map((d) => snapToObj(d));
+  return obj;
 }

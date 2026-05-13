@@ -13,9 +13,12 @@ export const PATCH = withAuth(async (req, { params }, { uid }) => {
   const group = gSnap.data();
   if (group.leaderId !== uid) return jsonError("Forbidden — leader only", 403);
 
-  const pending = group.pendingRequests || [];
-  const reqDoc = pending.find(r => r.id === params.reqId);
-  if (!reqDoc) return jsonError("Request not found", 404);
+  const reqRef = joinRequestsCol().doc(params.reqId);
+  const reqSnap = await reqRef.get();
+  if (!reqSnap.exists) return jsonError("Request not found", 404);
+  
+  const reqData = reqSnap.data();
+  if (reqData.groupId !== params.id) return jsonError("Bad Request", 400);
 
   if (action === "approve") {
     const members = group.members || [];
@@ -24,17 +27,16 @@ export const PATCH = withAuth(async (req, { params }, { uid }) => {
     }
     
     await groupRef.update({
-      pendingRequests: FieldValue.arrayRemove(reqDoc),
-      members: FieldValue.arrayUnion(reqDoc.userId),
-      membersList: FieldValue.arrayUnion({ uid: reqDoc.userId, name: reqDoc.userName, role: "Membre" }),
+      members: FieldValue.arrayUnion(reqData.userId),
+      membersList: FieldValue.arrayUnion({ uid: reqData.userId, name: reqData.userName, role: "Membre" }),
       memberCount: FieldValue.increment(1),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    
+    await reqRef.update({ status: "approved" });
   } else {
-    // Reject: just remove from pending
-    await groupRef.update({
-      pendingRequests: FieldValue.arrayRemove(reqDoc)
-    });
+    // Reject: update status
+    await reqRef.update({ status: "rejected" });
   }
 
   return jsonOk();

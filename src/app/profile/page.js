@@ -1,307 +1,235 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+
+import React, { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
-  FiUser, FiHash, FiMail, FiUsers, FiMessageSquare,
-  FiEdit2, FiX, FiCheck, FiCamera, FiCompass, FiAlertCircle,
-} from "react-icons/fi";
-import Sidebar from "@/components/Sidebar";
-import { auth } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import { api } from "@/lib/apiClient";
-import { useMyGroups } from "@/lib/useMyGroups";
+  User, School, GraduationCap, Edit3, Camera, Save, X, Loader2,
+  Layers, MapPin, Sparkles, Search, Check, ChevronRight
+} from "lucide-react";
 
-/* ════════════════════════════════════════════════════════════════════
-   PROFILE PAGE — Firestore + real-time groups (useMyGroups)
-   ───────────────────────────────────────────────────────────────────
-   • Profil utilisateur : GET /api/user/profile
-   • Mes groupes        : useMyGroups() → onSnapshot real-time
-                          (filtre members array-contains uid + status active)
-   • Index Firestore    : déjà déclaré dans firestore.indexes.json
-                          (members CONTAINS + status ASC + updatedAt DESC)
-══════════════════════════════════════════════════════════════════════ */
+// ─── الاستيرادات الخاصة بك ───
+import Sidebar from "@/components/Sidebar";
+import TsswalLogo from "@/components/TsswalLogo";
+import ActiveNodesSidebar from "@/components/chat/ActiveNodesSidebar";
+import { auth, firestore } from "@/lib/firebase";
+import { doc, getDoc, updateDoc, collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
+import { COL } from "@/lib/collections";
+import { useFileUpload } from "@/lib/useFileUpload";
+
+const UNIVERSITIES = ["Université d'Oran 1 Ahmed Ben Bella", "Université d'Oran 2 Mohamed Ben Ahmed", "USTO-MB", "ESI Algiers", "USTHB"];
+const SUBJECTS = ["Computer Science", "Artificial Intelligence", "Mathematics", "Medicine", "Physics"];
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userData, setUserData] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editAvatar, setEditAvatar] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState("");
+  const { upload, uploading } = useFileUpload();
   const fileInputRef = useRef(null);
 
-  // ── Real-time : groupes dont je suis membre ──
-  //    Le hook gère lui-même l'authentification + le filtrage par UID.
-  const { groups: myGroups, loading: groupsLoading, error: groupsError } = useMyGroups();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [joinedGroups, setJoinedGroups] = useState([]);
+  const [postCount, setPostCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingNodes, setLoadingNodes] = useState(true);
 
-  // ── Auth + profil ──
+  const [isEditing, setIsEditing] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [activeModal, setActiveModal] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [formData, setFormData] = useState({
+    fullName: "",
+    bio: "",
+    major: "",
+    university: "",
+    academicYear: "L1"
+  });
+
+  // 1. التوثيق وجلب بيانات الهوية
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) return;
-      setCurrentUser(u);
-      try {
-        const profile = await api("/api/user/profile");
-        setUserData(profile);
-        setEditName(profile?.fullName || "");
-      } catch (e) {
-        console.error("[profile]", e);
+    const unsubAuth = auth.onAuthStateChanged(async (u) => {
+      if (u) {
+        const userRef = doc(firestore, COL.USERS, u.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          const identity = { id: u.uid, uid: u.uid, ...data };
+          setCurrentUser(identity);
+
+          setFormData({
+            fullName: data.fullName || "",
+            bio: data.bio || "Academic scholar navigating the node network.",
+            major: data.major || "",
+            university: data.university || "",
+            academicYear: data.academicYear || "L1"
+          });
+
+          // مزامنة المجموعات لحظياً
+          const qGroups = query(
+            collection(firestore, COL.GROUPS),
+            where("members", "array-contains", u.uid) // ✅ تصحيح المعامل
+          );
+
+          onSnapshot(qGroups, (snap) => {
+            setJoinedGroups(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setLoadingNodes(false);
+          }, (err) => {
+            console.error(err);
+            setLoadingNodes(false);
+          });
+
+          // حساب عدد المنشورات
+          const qPosts = query(collection(firestore, COL.POSTS), where("uid", "==", u.uid));
+          const postsSnap = await getDocs(qPosts);
+          setPostCount(postsSnap.size);
+        }
+        setLoading(false);
+      } else {
+        router.push("/auth");
       }
     });
-    return unsub;
-  }, []);
+    return unsubAuth;
+  }, [router]);
 
-  // ── Sauvegarder le profil ──
-  const saveProfile = async () => {
-    if (!editName.trim() || !currentUser) return;
-    setSaving(true);
+  const handleSave = async () => {
+    if (saveLoading) return;
+    setSaveLoading(true);
     try {
-      const updates = { fullName: editName.trim() };
-      if (editAvatar) {
-        const fd = new FormData();
-        fd.append("file", editAvatar);
-        fd.append("folder", "tawassol/avatars");
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        if (res.ok) {
-          const data = await res.json();
-          updates.avatarUrl = data.url || data.secure_url;
-        }
-      }
-      await api("/api/user/profile", { method: "PATCH", body: updates });
-      setUserData({ ...userData, ...updates });
-      setEditing(false);
-      setEditAvatar(null);
-      setToast("Profil mis à jour");
-      setTimeout(() => setToast(""), 3000);
+      await updateDoc(doc(firestore, COL.USERS, auth.currentUser.uid), formData);
+      setCurrentUser(prev => ({ ...prev, ...formData }));
+      setIsEditing(false);
     } catch (e) {
-      alert(e.message || "Erreur");
+      console.error(e);
     } finally {
-      setSaving(false);
+      setSaveLoading(false);
     }
   };
 
-  const name = userData?.fullName || currentUser?.email?.split("@")[0] || "Étudiant";
-  const initial = name[0]?.toUpperCase() || "S";
-  const status = userData?.status || "active";
-  const avatarUrl = userData?.avatarUrl;
+  const SelectionModal = ({ type, list, current, onSelect }) => (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 text-left">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActiveModal(null)} className="absolute inset-0 bg-black/90 backdrop-blur-md" />
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="w-full max-w-md bg-[#0A0A0B] border border-white/10 rounded-[2.5rem] p-8 relative z-[120]">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] mb-6 text-slate-500">Select {type}</h3>
+        <div className="relative mb-6">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-700" size={16} />
+          <input placeholder="Search..." className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-sm text-white outline-none focus:border-brand-indigo/30" onChange={(e) => setSearchTerm(e.target.value)} />
+        </div>
+        <div className="max-h-[300px] overflow-y-auto space-y-2 custom-scrollbar">
+          {list.filter(i => i.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (
+            <div key={item} onClick={() => { onSelect(item); setActiveModal(null); setSearchTerm(""); }} className="w-full text-left p-4 rounded-xl bg-white/[0.02] hover:bg-brand-indigo/10 flex justify-between items-center transition-all cursor-pointer">
+              <span className={`text-xs ${current === item ? 'text-brand-indigo font-bold' : 'text-slate-400'}`}>{item}</span>
+              {current === item && <Check size={14} className="text-brand-indigo" />}
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+
+  if (loading) return <div className="min-h-screen bg-black flex items-center justify-center"><TsswalLogo size={40} className="animate-pulse" /></div>;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden flex">
-      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute top-[5%] right-[-10%] w-[500px] h-[500px] bg-violet-600/15 rounded-full blur-[140px]" />
-        <div className="absolute bottom-[-15%] left-[10%] w-[500px] h-[500px] bg-blue-600/15 rounded-full blur-[120px]" />
-      </div>
+    <div dir="ltr" className="min-h-screen bg-[#050505] text-[#F9FAFB] flex overflow-hidden selection:bg-brand-indigo/30">
 
-      <Sidebar />
-      <main className="ml-60 flex-1 p-8 max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-black tracking-tight">Mon Profil</h2>
-          {!editing && (
-            <button onClick={() => setEditing(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 rounded-xl text-sm font-bold transition-colors">
-              <FiEdit2 size={13} /> Modifier
-            </button>
-          )}
-        </div>
+      <Sidebar currentUser={currentUser} />
 
-        {/* Profile Card */}
-        <div className="bg-white/[0.04] rounded-3xl border border-white/10 backdrop-blur-md p-6 mb-6 relative overflow-hidden">
-          <div className="absolute -top-12 -right-12 w-48 h-48 bg-violet-500/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative flex items-center gap-5">
-            <div className="relative">
-              {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt={name} className="w-16 h-16 rounded-2xl object-cover ring-1 ring-white/20 shadow-xl shadow-violet-500/40" />
-              ) : (
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-violet-600 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-xl shadow-violet-500/40 ring-1 ring-white/20">
-                  {initial}
-                </div>
-              )}
-              {editing && (
-                <>
-                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-                    onChange={(e) => setEditAvatar(e.target.files?.[0] || null)} />
-                  <button onClick={() => fileInputRef.current?.click()}
-                    className="absolute -bottom-1 -right-1 w-7 h-7 bg-indigo-500 hover:bg-indigo-400 rounded-full flex items-center justify-center ring-2 ring-slate-950 transition-colors">
-                    <FiCamera size={12} />
-                  </button>
-                </>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              {editing ? (
-                <input value={editName} onChange={(e) => setEditName(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-lg font-black outline-none focus:border-indigo-400/50" />
-              ) : (
-                <h3 className="text-xl font-black text-white">{name}</h3>
-              )}
-              <p className="text-sm text-slate-400 capitalize">{userData?.role === "admin" ? "Administrateur" : "Étudiant"}</p>
-              {editAvatar && <p className="text-xs text-emerald-400 mt-1">📎 {editAvatar.name}</p>}
-            </div>
-            {editing ? (
-              <div className="flex gap-1">
-                <button onClick={saveProfile} disabled={saving}
-                  className="p-2 bg-emerald-500 hover:bg-emerald-400 rounded-xl transition-colors disabled:opacity-50">
-                  <FiCheck size={15} />
-                </button>
-                <button onClick={() => { setEditing(false); setEditAvatar(null); setEditName(userData?.fullName || ""); }}
-                  className="p-2 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-colors">
-                  <FiX size={15} />
-                </button>
-              </div>
-            ) : (
-              <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
-                status === "active"
-                  ? "bg-emerald-500/10 text-emerald-300 border-emerald-400/30"
-                  : status === "pending"
-                  ? "bg-amber-500/10 text-amber-300 border-amber-400/30"
-                  : "bg-rose-500/10 text-rose-300 border-rose-400/30"
-              }`}>
-                {status === "active" ? "Actif" : status === "pending" ? "En attente" : "Refusé"}
-              </span>
-            )}
-          </div>
+      <AnimatePresence>
+        {activeModal === 'uni' && <SelectionModal type="University" list={UNIVERSITIES} current={formData.university} onSelect={(v) => setFormData({ ...formData, university: v })} />}
+        {activeModal === 'major' && <SelectionModal type="Major" list={SUBJECTS} current={formData.major} onSelect={(v) => setFormData({ ...formData, major: v })} />}
+      </AnimatePresence>
 
-          <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-5 border-t border-white/10">
-            <InfoCard icon={FiHash} label="Matricule" value={userData?.matricule || "—"} gradient="from-blue-500 to-cyan-500" />
-            <InfoCard icon={FiMail} label="Email" value={userData?.email || currentUser?.email || "—"} gradient="from-violet-500 to-fuchsia-500" />
-            <InfoCard
-              icon={FiUsers}
-              label="Groupes"
-              value={groupsLoading ? "…" : String(myGroups.length)}
-              gradient="from-emerald-500 to-teal-500"
-            />
-          </div>
-        </div>
+      <main className="flex-1 lg:ml-[280px] overflow-y-auto h-screen custom-scrollbar pb-20 relative z-10 text-left">
+        <div className="h-48 bg-gradient-to-b from-brand-indigo/10 to-transparent" />
 
-        {/* Student ID Card */}
-        {userData?.studentCardUrl && (
-          <div className="bg-white/[0.04] rounded-3xl border border-white/10 backdrop-blur-md p-6 mb-6">
-            <h3 className="font-bold text-sm text-white mb-4 flex items-center gap-2">
-              <FiUser size={15} className="text-violet-400" /> Carte d&apos;étudiant
-            </h3>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={userData.studentCardUrl} alt="Carte" className="rounded-2xl w-full max-w-xs object-cover border border-white/10" />
-          </div>
-        )}
+        <div className="px-8 lg:px-16 -mt-16 flex flex-col xl:flex-row gap-12 max-w-[1600px] mx-auto">
 
-        {/* ═══════ MY GROUPS — real-time via useMyGroups ═══════ */}
-        <div className="bg-white/[0.04] rounded-3xl border border-white/10 backdrop-blur-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-sm text-white flex items-center gap-2">
-              <FiUsers size={15} className="text-violet-400" /> Mes groupes d&apos;étude
-              {!groupsLoading && myGroups.length > 0 && (
-                <span className="ml-1 px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-black">
-                  {myGroups.length}
-                </span>
-              )}
-            </h3>
-            {/* Indicator real-time */}
-            {!groupsLoading && !groupsError && (
-              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                <span className="relative flex w-1.5 h-1.5">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                  <span className="relative rounded-full w-1.5 h-1.5 bg-emerald-400" />
-                </span>
-                Live
-              </span>
-            )}
-          </div>
+          <div className="flex-1 flex flex-col lg:flex-row gap-12">
 
-          {/* Loading skeletons */}
-          {groupsLoading && (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-white/[0.04] rounded-2xl border border-white/10 animate-pulse">
-                  <div className="w-9 h-9 rounded-xl bg-white/10 shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="h-3 w-32 bg-white/10 rounded" />
-                    <div className="h-2 w-20 bg-white/5 rounded" />
+            {/* الجزء الأيسر: الصورة والإحصائيات */}
+            <div className="w-full lg:w-72 shrink-0">
+              <div className="relative group mb-8">
+                <div className="w-44 h-44 rounded-[2.5rem] bg-[#0A0A0B] border-4 border-[#050505] shadow-premium overflow-hidden flex items-center justify-center relative">
+                  {currentUser?.profilePicUrl ? <img src={currentUser.profilePicUrl} className="w-full h-full object-cover" /> : <span className="text-5xl font-serif italic text-brand-indigo">{currentUser?.fullName?.[0]}</span>}
+                  <div onClick={() => fileInputRef.current.click()} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity backdrop-blur-sm">
+                    <Camera className="text-white" />
                   </div>
-                  <div className="w-7 h-7 bg-white/5 rounded-xl" />
+                  <input type="file" ref={fileInputRef} className="hidden" onChange={async (e) => {
+                    const f = e.target.files[0]; if (f) { const r = await upload(f, `avatars/${auth.currentUser.uid}`); await updateDoc(doc(firestore, COL.USERS, auth.currentUser.uid), { profilePicUrl: r.url }); setCurrentUser({ ...currentUser, profilePicUrl: r.url }); }
+                  }} />
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
 
-          {/* Error state */}
-          {!groupsLoading && groupsError && (
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-500/10 border border-rose-400/30">
-              <FiAlertCircle size={16} className="text-rose-300 shrink-0 mt-0.5" />
-              <div className="text-xs text-rose-200">
-                <p className="font-bold mb-0.5">Impossible de charger les groupes</p>
-                <p className="opacity-80">{groupsError}</p>
+              <div className="bg-[#0A0A0B] border border-white/5 rounded-[2rem] p-8 space-y-6 shadow-premium">
+                <div className="flex justify-between items-center"><span className="text-[9px] font-black uppercase text-slate-600 tracking-widest">Active Nodes</span><span className="text-xl font-serif italic text-brand-indigo">{joinedGroups.length.toString().padStart(2, '0')}</span></div>
+                <div className="flex justify-between items-center"><span className="text-[9px] font-black uppercase text-slate-600 tracking-widest">Post Signal</span><span className="text-xl font-serif italic text-white">{postCount.toString().padStart(2, '0')}</span></div>
               </div>
             </div>
-          )}
 
-          {/* Empty state */}
-          {!groupsLoading && !groupsError && myGroups.length === 0 && (
-            <div className="text-center py-10 text-slate-500">
-              <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-violet-500/10 border border-violet-400/20 flex items-center justify-center">
-                <FiUsers size={22} className="text-violet-400" />
-              </div>
-              <p className="text-sm font-semibold text-slate-300">Vous n&apos;avez encore rejoint aucun groupe</p>
-              <p className="text-xs mt-1">Rejoignez un groupe pour collaborer avec d&apos;autres étudiants.</p>
-              <button
-                onClick={() => router.push("/explore")}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30 rounded-xl text-xs font-bold text-violet-200 hover:text-white transition-all"
-              >
-                <FiCompass size={12} /> Explorer les groupes
-              </button>
-            </div>
-          )}
+            {/* الجزء الأوسط: البيانات */}
+            <div className="flex-1">
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-12">
+                <div className="flex-1 w-full">
+                  {isEditing ? (
+                    <input
+                      value={formData.fullName}
+                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                      className="text-[32px] font-serif italic font-black bg-white/5 border-b-2 border-brand-indigo outline-none text-white w-full px-2 py-1"
+                    />
+                  ) : (
+                    <h1 className="text-[42px] font-serif italic font-black text-white leading-none">{currentUser?.fullName}</h1>
+                  )}
+                  <p className="text-[9px] font-black text-brand-indigo uppercase tracking-[0.4em] mt-4 flex items-center gap-2 italic">
+                    <MapPin size={10} /> {currentUser?.university}
+                  </p>
+                </div>
 
-          {/* Groups list */}
-          {!groupsLoading && !groupsError && myGroups.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {myGroups.map((group) => (
                 <button
-                  key={group.id}
-                  onClick={() => router.push(`/hub/chat/${group.id}`)}
-                  className="text-left flex items-center gap-3 p-3 bg-white/[0.04] rounded-2xl border border-white/10 hover:bg-white/[0.07] hover:border-violet-400/30 transition-all group"
+                  type="button"
+                  onClick={() => isEditing ? handleSave() : setIsEditing(true)}
+                  className="px-8 py-3.5 bg-white text-black rounded-full text-[9px] font-black uppercase tracking-widest hover:bg-brand-indigo hover:text-white transition-all shadow-glow flex items-center gap-2 border-none cursor-pointer relative z-[30]"
                 >
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-lg shadow-violet-500/30 ring-1 ring-white/20">
-                    {group.name?.[0]?.toUpperCase() || "G"}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate group-hover:text-violet-200 transition-colors">
-                      {group.name}
-                    </p>
-                    <p className="text-[11px] text-slate-500 truncate">
-                      {group.subject || "—"} · {group.memberCount || 0} membres
-                    </p>
-                  </div>
-                  <div className="p-2 text-violet-400 group-hover:bg-violet-500/10 rounded-xl transition-all shrink-0">
-                    <FiMessageSquare size={14} />
-                  </div>
+                  {saveLoading ? <Loader2 size={12} className="animate-spin" /> : isEditing ? <Save size={12} /> : <Edit3 size={12} />}
+                  {isEditing ? "Save Signal" : "Edit Identity"}
                 </button>
-              ))}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+                <div className={`p-8 bg-[#0A0A0B] border border-white/5 rounded-[2rem] transition-all ${isEditing ? 'border-brand-indigo/40 cursor-pointer shadow-glow' : ''}`} onClick={() => isEditing && setActiveModal('major')}>
+                  <div className="flex items-center gap-4 mb-4"><GraduationCap size={16} className="text-brand-indigo" /><span className="text-[9px] font-black uppercase text-slate-600 tracking-widest">Academic Major</span></div>
+                  <p className="text-sm font-bold text-white uppercase tracking-wider">{formData.major || "Select Major"}</p>
+                </div>
+                <div className={`p-8 bg-[#0A0A0B] border border-white/5 rounded-[2rem] transition-all ${isEditing ? 'border-brand-indigo/40 cursor-pointer shadow-glow' : ''}`} onClick={() => isEditing && setActiveModal('uni')}>
+                  <div className="flex items-center gap-4 mb-4"><School size={16} className="text-brand-indigo" /><span className="text-[9px] font-black uppercase text-slate-600 tracking-widest">Sanctuary</span></div>
+                  <p className="text-sm font-bold text-white uppercase tracking-wider">{formData.university || "Select University"}</p>
+                </div>
+              </div>
+
+              <div className="mb-12">
+                <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-600 mb-8 flex items-center gap-3 text-left">
+                  <Layers size={14} className="text-brand-indigo" /> Protocol Status
+                </h3>
+                <p className="text-[13px] font-serif italic text-slate-400 max-w-xl leading-relaxed text-left">
+                  {formData.bio}
+                </p>
+              </div>
             </div>
-          )}
+          </div>
+
+          {/* العمود الأيمن: العقد النشطة */}
+          <aside className="hidden xl:flex flex-col w-[320px] sticky top-10 h-fit ml-auto">
+            <ActiveNodesSidebar
+              nodes={joinedGroups}
+              currentUser={currentUser}
+              loading={loadingNodes}
+            />
+          </aside>
         </div>
       </main>
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 bg-emerald-500 text-white rounded-2xl text-sm font-bold shadow-2xl shadow-emerald-500/40 z-50">
-          ✓ {toast}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function InfoCard({ icon: Icon, label, value, gradient }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className={`w-9 h-9 bg-gradient-to-br ${gradient} rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg ring-1 ring-white/20`}>
-        <Icon size={14} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{label}</p>
-        <p className="font-bold text-white text-sm truncate">{value}</p>
-      </div>
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.02); border-radius: 10px; }
+      `}} />
     </div>
   );
 }

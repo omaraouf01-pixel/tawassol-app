@@ -1,13 +1,9 @@
 // ════════════════════════════════════════════════════════════════
-// Collections Firestore — TSSWAL
-// ════════════════════════════════════════════════════════════════
-// Firestore est schemaless, donc on définit ici :
-//   1. Les noms des collections (centralisés)
-//   2. Des helpers de validation (au lieu des Schemas Mongoose)
-//   3. Des "shapes" par défaut pour chaque type de document
+// Collections Firestore — TAWASSOL (Client-Safe Version)
 // ════════════════════════════════════════════════════════════════
 
-import { db, FieldValue } from "./firestore";
+import { firestore as db } from "./firebase"; // استيراد نسخة المتصفح
+import { collection, serverTimestamp } from "firebase/firestore";
 
 // ─── Noms des collections ──────────────────────────────────────
 export const COL = {
@@ -17,20 +13,20 @@ export const COL = {
   POSTS: "posts",
   NOTIFICATIONS: "notifications",
   RESOURCES: "resources",
-  JOIN_REQUESTS: "joinRequests",
+  JOIN_REQUESTS: "join-requests",
 };
 
-// ─── Références rapides ────────────────────────────────────────
-export const usersCol = () => db.collection(COL.USERS);
-export const groupsCol = () => db.collection(COL.GROUPS);
-export const messagesCol = () => db.collection(COL.MESSAGES);
-export const postsCol = () => db.collection(COL.POSTS);
-export const notificationsCol = () => db.collection(COL.NOTIFICATIONS);
-export const resourcesCol = () => db.collection(COL.RESOURCES);
-export const joinRequestsCol = () => db.collection(COL.JOIN_REQUESTS);
+// ─── Références rapides (Client-Side Compatible) ───────────────
+export const usersCol = () => collection(db, COL.USERS);
+export const groupsCol = () => collection(db, COL.GROUPS);
+export const messagesCol = () => collection(db, COL.MESSAGES);
+export const postsCol = () => collection(db, COL.POSTS);
+export const notificationsCol = () => collection(db, COL.NOTIFICATIONS);
+export const resourcesCol = () => collection(db, COL.RESOURCES);
+export const joinRequestsCol = () => collection(db, COL.JOIN_REQUESTS);
 
 // ════════════════════════════════════════════════════════════════
-// Validators (remplacent les schemas Mongoose)
+// Validators & Document Builders
 // ════════════════════════════════════════════════════════════════
 
 /** Lance une erreur si une condition n'est pas remplie. */
@@ -64,8 +60,8 @@ export function buildUserDoc(data) {
     department: data.department || null,
     bio: (data.bio || "").slice(0, 500),
     avatarUrl: data.avatarUrl || null,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
 }
 
@@ -94,8 +90,8 @@ export function buildGroupDoc(data) {
     ],
     status: data.status && ["active", "archived"].includes(data.status) ? data.status : "active",
     isPublic: data.isPublic !== undefined ? !!data.isPublic : true,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
 }
 
@@ -106,17 +102,24 @@ export function buildMessageDoc(data) {
   assert(data.userName, "userName requis");
   assert(data.text || data.imageUrl || data.fileUrl, "Message vide");
 
+  const hasAttachment = !!(data.imageUrl || data.fileUrl);
+  const isLeaderUpload = hasAttachment && data.leaderId && data.uid === data.leaderId;
+  const moderationStatus = hasAttachment
+    ? (isLeaderUpload ? "approved" : "pending")
+    : "approved";
+
   return {
     groupId: data.groupId,
     uid: data.uid,
     userName: data.userName,
     text: data.text || "",
-    imageUrl: data.imageUrl || null,    // image (rendu inline)
-    fileUrl: data.fileUrl || null,      // fichier générique (PDF, doc, etc.)
-    fileName: data.fileName || null,    // nom original (affichage)
-    fileType: data.fileType || null,    // mime-type (icône appropriée)
+    imageUrl: data.imageUrl || null,
+    fileUrl: data.fileUrl || null,
+    fileName: data.fileName || null,
+    fileType: data.fileType || null,
     replyTo: data.replyTo || null,
-    createdAt: FieldValue.serverTimestamp(),
+    moderationStatus,
+    createdAt: serverTimestamp(),
   };
 }
 
@@ -134,8 +137,8 @@ export function buildPostDoc(data) {
     text: data.text,
     tag: data.tag || "General",
     likes: [],
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
 }
 
@@ -150,7 +153,7 @@ export function buildNotificationDoc(data) {
     body: data.body || "",
     link: data.link || null,
     read: false,
-    createdAt: FieldValue.serverTimestamp(),
+    createdAt: serverTimestamp(),
   };
 }
 
@@ -169,7 +172,7 @@ export function buildResourceDoc(data) {
     uid: data.uid,
     uploader: data.uploader,
     status: data.status && ["pending", "approved"].includes(data.status) ? data.status : "pending",
-    createdAt: FieldValue.serverTimestamp(),
+    createdAt: serverTimestamp(),
   };
 }
 
@@ -188,6 +191,6 @@ export function buildJoinRequestDoc(data) {
     matricule: data.matricule || "",
     answers: Array.isArray(data.answers) ? data.answers : [],
     status: "pending",
-    createdAt: FieldValue.serverTimestamp(),
+    createdAt: serverTimestamp(),
   };
 }

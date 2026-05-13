@@ -1,524 +1,669 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+
+import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
-  FiAlertCircle, FiEye, FiEyeOff, FiArrowLeft,
-  FiCamera, FiCheckCircle, FiUploadCloud, FiHash, FiUser,
-  FiMail, FiLock, FiSend,
-} from "react-icons/fi";
+  Camera, Mail, Lock, User, Hash, Eye,
+  EyeOff, AlertCircle, Loader2, CheckCircle, ChevronLeft
+} from "lucide-react";
+
+import { auth, firestore } from "@/lib/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
+
 import TsswalLogo from "@/components/TsswalLogo";
-import { auth } from "@/lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
 
-export default function AuthPage() {
-  const router = useRouter();
-  const [mode, setMode] = useState("login"); // "login" | "register"
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [showPwd, setShowPwd] = useState(false);
-  const [toast, setToast] = useState(null); // {type, text}
+/* ─── Animated underline decoration ─── */
+const WaveLine = () => (
+  <svg width="100" height="10" viewBox="0 0 160 12" fill="none" className="mt-1">
+    <motion.path
+      d="M2 9 C30 2, 60 10, 90 4 C120 -2, 140 8, 158 5"
+      stroke="#6366f1" strokeWidth="3" strokeLinecap="round" fill="none"
+      initial={{ pathLength: 0, opacity: 0 }}
+      animate={{ pathLength: 1, opacity: 1 }}
+      transition={{ duration: 1.2, delay: 0.3, ease: "easeOut" }}
+    />
+  </svg>
+);
 
-  // Login fields (matricule + password)
-  const [loginMatricule, setLoginMatricule] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-
-  // Register fields
-  const [regMatricule, setRegMatricule] = useState("");
-  const [regName, setRegName] = useState("");
-  const [regEmail, setRegEmail] = useState("");
-  const [regPassword, setRegPassword] = useState("");
-  const [regIdCard, setRegIdCard] = useState(null);
-  const [dragOver, setDragOver] = useState(false);
-
-  const fileInputRef = useRef(null);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 5000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  /* ─────── LOGIN by matricule ─────── */
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      // 1. Ask the backend to resolve the matricule → email + user data
-      const lookupRes = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matricule: loginMatricule.trim() }),
-      });
-      const lookupData = await lookupRes.json();
-      if (!lookupRes.ok) {
-        setError(lookupData.error || "Matricule introuvable.");
-        setLoading(false);
-        return;
-      }
-
-      // 2. Sign in with the resolved email
-      await signInWithEmailAndPassword(auth, lookupData.email, loginPassword);
-
-      // 3. Route based on role / status
-      if (lookupData.role === "admin") return router.push("/admin");
-      if (lookupData.status === "pending") return router.push("/pending");
-      if (lookupData.status === "rejected") {
-        setError("Votre compte a été rejeté par l'administrateur.");
-        auth.signOut();
-        setLoading(false);
-        return;
-      }
-      if (lookupData.status === "active") return router.push(lookupData.onboarded ? "/hub" : "/onboarding");
-    } catch {
-      setError("Matricule ou mot de passe invalide.");
-    }
-    setLoading(false);
-  };
-
-  /* ─────── REGISTER (100% server-side — ne touche pas la session) ─────── */
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setError("");
-    if (!regIdCard) { setError("Veuillez téléverser votre carte d'étudiant."); return; }
-    if (regPassword.length < 6) { setError("Le mot de passe doit contenir au moins 6 caractères."); return; }
-    setLoading(true);
-    try {
-      // ── Tout est envoyé en UN SEUL appel au serveur ──
-      //   Le serveur (firebase-admin) crée le compte Auth + Firestore en silence.
-      //   La session du navigateur (admin) n'est PAS modifiée.
-      const formData = new FormData();
-      formData.append("matricule", regMatricule.trim());
-      formData.append("fullName", regName.trim());
-      formData.append("email", regEmail.trim());
-      formData.append("password", regPassword);
-      formData.append("studentCard", regIdCard);
-
-      const registerRes = await fetch("/api/register", {
-        method: "POST",
-        body: formData,
-        // Pas de Content-Type : le navigateur définit le boundary FormData.
-      });
-
-      const data = await registerRes.json().catch(() => ({}));
-      if (!registerRes.ok) {
-        throw new Error(data.error || "Erreur lors de l'enregistrement.");
-      }
-
-      // ── Succès : vider le formulaire + toast ──
-      setRegMatricule("");
-      setRegName("");
-      setRegEmail("");
-      setRegPassword("");
-      setRegIdCard(null);
-
-      setToast({ type: "success", text: "Compte créé. En attente de validation par un administrateur." });
-
-      // Si l'utilisateur courant est DÉJÀ connecté (cas admin), on reste sur la page.
-      // Sinon (visiteur public), on le redirige vers /pending après 1.5s.
-      if (!auth.currentUser) {
-        setTimeout(() => router.push("/pending"), 1500);
-      }
-    } catch (err) {
-      console.error("[REGISTER ERROR]", err);
-      setError(err.message || "Erreur inconnue lors de l'inscription.");
-    }
-    setLoading(false);
-  };
-
-  /* ─────── Drag & Drop handlers ─────── */
-  const onDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("image/")) setRegIdCard(file);
-  };
-
+/* ─── Single input field ─── */
+function Field({ label, icon: Icon, children }) {
   return (
-    <div className="min-h-screen bg-[#0F172A] text-white relative overflow-hidden flex flex-col">
-      {/* ═══ Ambient lighting ═══ */}
-      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute top-[-15%] left-[-5%] w-[600px] h-[600px] bg-indigo-600/25 rounded-full blur-[160px]" />
-        <div className="absolute top-[40%] right-[-10%] w-[500px] h-[500px] bg-violet-600/20 rounded-full blur-[140px]" />
-        <div className="absolute bottom-[-15%] left-[20%] w-[500px] h-[500px] bg-fuchsia-600/15 rounded-full blur-[140px]" />
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)",
-            backgroundSize: "50px 50px",
-          }}
-        />
-      </div>
-
-      {/* ═══ Top bar ═══ */}
-      <header className="px-6 py-5 flex items-center justify-between max-w-7xl w-full mx-auto relative z-10">
-        <Link href="/" className="group">
-          <TsswalLogo size={32} lockup glow className="hover:opacity-90 transition-opacity" />
-        </Link>
-        <Link
-          href="/"
-          className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
-        >
-          <FiArrowLeft size={13} /> Retour à l'accueil
-        </Link>
-      </header>
-
-      {/* ═══ Centered glass card ═══ */}
-      <main className="flex-1 flex items-center justify-center px-4 pb-12 relative z-10">
-        <div className="w-full max-w-md">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="relative rounded-3xl bg-white/[0.04] border border-white/10 backdrop-blur-2xl p-8 shadow-2xl shadow-black/40 overflow-hidden"
-          >
-            {/* Card top border highlight */}
-            <div aria-hidden className="absolute top-0 left-1/4 right-1/4 h-px bg-gradient-to-r from-transparent via-indigo-400/60 to-transparent" />
-            {/* Inner glow */}
-            <div aria-hidden className="absolute -top-20 -right-20 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-            <div aria-hidden className="absolute -bottom-20 -left-20 w-48 h-48 bg-violet-500/15 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="relative">
-              {/* Centered logo (présence forte) */}
-              <div className="flex justify-center mb-5">
-                <TsswalLogo size={56} glow />
-              </div>
-
-              {/* Heading */}
-              <div className="mb-6 text-center">
-                <h1 className="text-2xl font-black tracking-tight mb-1">
-                  {mode === "login" ? "Bon retour 👋" : "Créer un compte"}
-                </h1>
-                <p className="text-sm text-slate-400">
-                  {mode === "login"
-                    ? "Connectez-vous avec votre matricule."
-                    : "Rejoignez TSSWAL en quelques secondes."}
-                </p>
-              </div>
-
-              {/* ─── ELEGANT TOGGLE SLIDER ─── */}
-              <div className="relative bg-white/5 border border-white/10 rounded-full p-1 mb-7 flex">
-                <motion.div
-                  layoutId="auth-pill"
-                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                  className="absolute top-1 bottom-1 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/50 ring-1 ring-white/20"
-                  style={{
-                    left: mode === "login" ? "4px" : "calc(50% + 0px)",
-                    width: "calc(50% - 4px)",
-                  }}
-                />
-                {[
-                  { id: "login", label: "Connexion" },
-                  { id: "register", label: "Inscription" },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setMode(t.id); setError(""); }}
-                    className={`relative flex-1 py-2 rounded-full text-sm font-semibold transition-colors ${
-                      mode === t.id ? "text-white" : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Error */}
-              <AnimatePresence>
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className="flex items-center gap-2 bg-rose-500/10 border border-rose-400/30 text-rose-300 text-xs font-semibold px-4 py-3 rounded-xl mb-5"
-                  >
-                    <FiAlertCircle size={14} className="shrink-0" />
-                    {error}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* ─── FORMS ─── */}
-              <AnimatePresence mode="wait">
-                {mode === "login" ? (
-                  <motion.form
-                    key="login"
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 8 }}
-                    transition={{ duration: 0.25 }}
-                    onSubmit={handleLogin}
-                    className="space-y-4"
-                  >
-                    <FieldWithIcon icon={FiHash} label="Matricule">
-                      <input
-                        type="text"
-                        placeholder="2024-CS-001"
-                        value={loginMatricule}
-                        onChange={(e) => setLoginMatricule(e.target.value)}
-                        required
-                        className="auth-input"
-                      />
-                    </FieldWithIcon>
-
-                    <FieldWithIcon icon={FiLock} label="Mot de passe">
-                      <div className="relative">
-                        <input
-                          type={showPwd ? "text" : "password"}
-                          placeholder="••••••••"
-                          value={loginPassword}
-                          onChange={(e) => setLoginPassword(e.target.value)}
-                          required
-                          className="auth-input pr-11"
-                        />
-                        <button type="button" onClick={() => setShowPwd(!showPwd)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
-                          {showPwd ? <FiEyeOff size={15} /> : <FiEye size={15} />}
-                        </button>
-                      </div>
-                    </FieldWithIcon>
-
-                    <div className="flex items-center justify-end -mt-1">
-                      <button type="button" className="text-xs text-slate-500 hover:text-indigo-300 transition-colors font-medium">
-                        Mot de passe oublié ?
-                      </button>
-                    </div>
-
-                    <SubmitButton loading={loading}>Se connecter</SubmitButton>
-
-                    <p className="text-xs text-slate-500 text-center pt-2">
-                      Pas encore inscrit ?{" "}
-                      <button type="button" onClick={() => setMode("register")} className="text-indigo-300 hover:text-indigo-200 font-semibold">
-                        Créer un compte
-                      </button>
-                    </p>
-                  </motion.form>
-                ) : (
-                  <motion.form
-                    key="register"
-                    initial={{ opacity: 0, x: 8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -8 }}
-                    transition={{ duration: 0.25 }}
-                    onSubmit={handleRegister}
-                    className="space-y-4"
-                  >
-                    <FieldWithIcon icon={FiHash} label="Matricule">
-                      <input
-                        type="text"
-                        placeholder="2024-CS-001"
-                        value={regMatricule}
-                        onChange={(e) => setRegMatricule(e.target.value)}
-                        required
-                        className="auth-input"
-                      />
-                    </FieldWithIcon>
-
-                    <FieldWithIcon icon={FiUser} label="Nom complet">
-                      <input
-                        type="text"
-                        placeholder="Ahmed Benali"
-                        value={regName}
-                        onChange={(e) => setRegName(e.target.value)}
-                        required
-                        className="auth-input"
-                      />
-                    </FieldWithIcon>
-
-                    <FieldWithIcon icon={FiMail} label="Email">
-                      <input
-                        type="email"
-                        placeholder="vous@univ.dz"
-                        value={regEmail}
-                        onChange={(e) => setRegEmail(e.target.value)}
-                        required
-                        className="auth-input"
-                      />
-                    </FieldWithIcon>
-
-                    <FieldWithIcon icon={FiLock} label="Mot de passe">
-                      <div className="relative">
-                        <input
-                          type={showPwd ? "text" : "password"}
-                          placeholder="Minimum 6 caractères"
-                          value={regPassword}
-                          onChange={(e) => setRegPassword(e.target.value)}
-                          required
-                          className="auth-input pr-11"
-                        />
-                        <button type="button" onClick={() => setShowPwd(!showPwd)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
-                          {showPwd ? <FiEyeOff size={15} /> : <FiEye size={15} />}
-                        </button>
-                      </div>
-                    </FieldWithIcon>
-
-                    {/* ─── DRAG & DROP ZONE ─── */}
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
-                        Carte d'étudiant <span className="text-violet-400">*</span>
-                      </label>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        className="hidden"
-                        accept="image/*"
-                        onChange={(e) => setRegIdCard(e.target.files[0] || null)}
-                      />
-                      <div
-                        onClick={() => fileInputRef.current?.click()}
-                        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                        onDragLeave={() => setDragOver(false)}
-                        onDrop={onDrop}
-                        className={`relative cursor-pointer rounded-xl border-2 border-dashed px-5 py-6 transition-all overflow-hidden ${
-                          regIdCard
-                            ? "border-emerald-400/40 bg-emerald-500/5"
-                            : dragOver
-                            ? "border-indigo-400/70 bg-indigo-500/10 scale-[1.01]"
-                            : "border-white/15 bg-white/[0.02] hover:border-indigo-400/40 hover:bg-white/[0.04]"
-                        }`}
-                      >
-                        {regIdCard ? (
-                          <div className="flex items-center gap-3 text-sm">
-                            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
-                              <FiCheckCircle size={18} className="text-emerald-400" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="font-semibold text-white truncate">{regIdCard.name}</p>
-                              <p className="text-[11px] text-slate-500">
-                                {(regIdCard.size / 1024).toFixed(0)} KB · Cliquez pour changer
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center text-center">
-                            <div className="relative mb-3">
-                              <div className="absolute inset-0 bg-indigo-500 blur-md opacity-30" />
-                              <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center ring-1 ring-white/20 shadow-lg shadow-indigo-500/40">
-                                <FiCamera size={20} className="text-white" />
-                              </div>
-                            </div>
-                            <p className="text-sm font-bold text-white">
-                              Télécharger la carte d'étudiant
-                            </p>
-                            <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
-                              <FiUploadCloud size={11} />
-                              Glissez-déposez ou cliquez pour parcourir
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <SubmitButton loading={loading}>Créer mon compte</SubmitButton>
-
-                    <p className="text-[11px] text-slate-500 text-center leading-relaxed pt-1">
-                      Votre compte sera vérifié par un administrateur avant activation.
-                    </p>
-                  </motion.form>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
-
-          {/* Trust footer */}
-          <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-500">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Authentification sécurisée · Firebase
-          </div>
-        </div>
-      </main>
-
-      {/* ═══ BOTTOM TOAST NOTIFICATION ═══ */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 60 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 60 }}
-            transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)]"
-          >
-            <div className="relative">
-              <div aria-hidden className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-2xl blur-lg opacity-50" />
-              <div className="relative flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#0F172A]/90 border border-indigo-400/30 backdrop-blur-xl shadow-2xl">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shrink-0 ring-1 ring-white/20">
-                  <FiSend size={15} className="text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-white">Inscription transmise</p>
-                  <p className="text-[11px] text-slate-400 truncate">{toast.text}</p>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse [animation-delay:200ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse [animation-delay:400ms]" />
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Local input styling */}
-      <style jsx global>{`
-        .auth-input {
-          width: 100%;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 0.75rem;
-          padding: 0.75rem 1rem 0.75rem 2.5rem;
-          font-size: 0.875rem;
-          color: white;
-          outline: none;
-          transition: all 0.2s ease;
-        }
-        .auth-input::placeholder { color: rgba(148, 163, 184, 0.5); }
-        .auth-input:focus {
-          border-color: rgba(99, 102, 241, 0.6);
-          background: rgba(255, 255, 255, 0.05);
-          box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
-        }
-      `}</style>
-    </div>
-  );
-}
-
-/* ──────────── Helper components ──────────── */
-function FieldWithIcon({ icon: Icon, label, children }) {
-  return (
-    <div>
-      <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+    <div className="flex flex-col gap-1.5 group">
+      <label className="text-xs font-semibold text-slate-500 group-focus-within:text-indigo-500 transition-colors tracking-wide">
         {label}
       </label>
-      <div className="relative">
-        <Icon size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 z-10 pointer-events-none" />
+      <div className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 gap-3 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+        {Icon && <Icon size={16} className="text-slate-400 flex-shrink-0" />}
         {children}
       </div>
     </div>
   );
 }
 
-function SubmitButton({ loading, children }) {
+export default function AuthPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState("login");
+  const [loading, setLoading] = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
+  const [error, setError] = useState("");
+
+  const [formData, setFormData] = useState({
+    matricule: "",
+    password: "",
+    fullName: "",
+    email: ""
+  });
+  const [idCard, setIdCard] = useState(null);
+  const fileRef = useRef(null);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    if (loading) return;
+    setError("");
+    setLoading(true);
+
+    try {
+      if (mode === "register") {
+        if (!idCard) throw new Error("يرجى رفع صورة البطاقة الجامعية للتحقق.");
+
+        const mQuery = query(collection(firestore, "users"), where("matricule", "==", formData.matricule));
+        const mSnap = await getDocs(mQuery);
+        if (!mSnap.empty) throw new Error("هذا الرقم الجامعي مسجل مسبقاً.");
+
+        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        const user = userCredential.user;
+
+        const fd = new FormData();
+        fd.append("file", idCard);
+        fd.append("folder", "tawassol/idCards");
+        const uploadRes = await fetch("/api/upload", { method: "POST", body: fd });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.url) throw new Error("فشل في مزامنة وثيقة الهوية.");
+
+        await setDoc(doc(firestore, "users", user.uid), {
+          uid: user.uid,
+          fullName: formData.fullName,
+          email: formData.email,
+          matricule: formData.matricule,
+          studentCardUrl: uploadData.url,
+          role: 'student',
+          status: 'pending',
+          onboarded: false,
+          createdAt: serverTimestamp()
+        });
+
+        router.push("/pending");
+
+      } else {
+        const q = query(collection(firestore, "users"), where("matricule", "==", formData.matricule));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) throw new Error("لم يتم العثور على حساب مرتبط بهذا الرقم.");
+
+        const userData = querySnapshot.docs[0].data();
+        await signInWithEmailAndPassword(auth, userData.email, formData.password);
+
+        if (userData.role === "admin") router.push("/admin");
+        else if (userData.status === "pending") router.push("/pending");
+        else if (userData.status === "approved_onboarding") router.push("/onboarding");
+        else if (userData.status === "active") router.push("/hub");
+      }
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
   return (
-    <button
-      type="submit"
-      disabled={loading}
-      className="relative group w-full py-3.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed overflow-hidden mt-2"
-    >
-      <span aria-hidden className="absolute -inset-1 bg-indigo-500 blur-xl opacity-50 group-hover:opacity-100 transition-opacity" />
-      <span className="relative flex items-center justify-center gap-2">
-        {loading ? (
-          <>
-            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Patientez...
-          </>
-        ) : children}
-      </span>
-    </button>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+        .auth-root {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #f8faff 0%, #eef2ff 50%, #fdf4ff 100%);
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .auth-logo-name {
+          font-family: 'Lora', serif;
+          font-weight: 600;
+          font-style: italic;
+          font-size: 18px;
+          color: #1e1b4b;
+          letter-spacing: 0.04em;
+        }
+        .auth-logo-sub {
+          font-size: 10px;
+          font-weight: 700;
+          color: #6366f1;
+          letter-spacing: 0.15em;
+          text-transform: uppercase;
+        }
+
+        .auth-card {
+          background: #ffffff;
+          border-radius: 24px;
+          box-shadow: 0 4px 6px -1px rgba(99,102,241,0.04),
+                      0 20px 50px -10px rgba(99,102,241,0.10),
+                      0 0 0 1px rgba(99,102,241,0.06);
+          padding: 40px 36px;
+          width: 100%;
+          max-width: 440px;
+        }
+
+        .auth-heading {
+          font-family: 'Lora', serif;
+          font-weight: 600;
+          font-size: 26px;
+          color: #1e1b4b;
+          line-height: 1.3;
+        }
+        .auth-sub {
+          font-size: 13px;
+          color: #94a3b8;
+          margin-top: 6px;
+          line-height: 1.6;
+        }
+
+        .tab-btn {
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-size: 13px;
+          font-weight: 700;
+          padding: 8px 20px;
+          border-radius: 100px;
+          border: none;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          letter-spacing: 0.01em;
+        }
+        .tab-btn.active {
+          background: #1e1b4b;
+          color: #ffffff;
+          box-shadow: 0 2px 8px rgba(30,27,75,0.18);
+        }
+        .tab-btn.inactive {
+          background: transparent;
+          color: #94a3b8;
+        }
+        .tab-btn.inactive:hover {
+          color: #475569;
+          background: #f1f5f9;
+        }
+
+        .field-input {
+          flex: 1;
+          background: transparent;
+          border: none;
+          outline: none;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 500;
+          color: #1e293b;
+        }
+        .field-input::placeholder {
+          color: #cbd5e1;
+          font-weight: 400;
+        }
+
+        .error-box {
+          background: #fff1f2;
+          border: 1px solid #fecdd3;
+          border-radius: 12px;
+          padding: 12px 16px;
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          font-size: 12px;
+          font-weight: 500;
+          color: #e11d48;
+          line-height: 1.5;
+        }
+
+        .upload-btn {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 14px 16px;
+          border-radius: 14px;
+          border: 2px dashed #e2e8f0;
+          background: #fafbff;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .upload-btn:hover {
+          border-color: #a5b4fc;
+          background: #f5f3ff;
+        }
+        .upload-btn.has-file {
+          border-color: #818cf8;
+          background: #f5f3ff;
+          color: #4f46e5;
+        }
+        .upload-label {
+          font-size: 12px;
+          font-weight: 600;
+          color: #64748b;
+          letter-spacing: 0.02em;
+        }
+        .upload-btn.has-file .upload-label {
+          color: #4f46e5;
+        }
+
+        .submit-btn {
+          width: 100%;
+          padding: 14px;
+          border-radius: 14px;
+          background: linear-gradient(135deg, #4f46e5, #7c3aed);
+          color: white;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 700;
+          border: none;
+          cursor: pointer;
+          letter-spacing: 0.03em;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 4px 14px rgba(79,70,229,0.30);
+        }
+        .submit-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 20px rgba(79,70,229,0.38);
+        }
+        .submit-btn:active:not(:disabled) {
+          transform: translateY(0px);
+        }
+        .submit-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .left-headline {
+          font-family: 'Lora', serif;
+          font-size: clamp(42px, 5vw, 72px);
+          font-weight: 600;
+          color: #1e1b4b;
+          line-height: 1.1;
+          letter-spacing: -0.02em;
+        }
+        .left-headline em {
+          font-style: italic;
+          color: #6366f1;
+        }
+        .left-desc {
+          font-size: 15px;
+          color: #64748b;
+          line-height: 1.75;
+          max-width: 340px;
+          margin-top: 28px;
+        }
+
+        .trust-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+          border-radius: 100px;
+          padding: 5px 12px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #16a34a;
+          margin-top: 32px;
+        }
+        .trust-dot {
+          width: 6px;
+          height: 6px;
+          background: #22c55e;
+          border-radius: 50%;
+          animation: pulse-dot 2s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        .divider-tag {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #cbd5e1;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .divider-line {
+          flex: 1;
+          height: 1px;
+          background: #f1f5f9;
+        }
+
+        .field-wrapper {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .field-wrapper label {
+          font-size: 11.5px;
+          font-weight: 700;
+          color: #64748b;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          transition: color 0.2s;
+        }
+        .field-wrapper:focus-within label {
+          color: #4f46e5;
+        }
+        .field-inner {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 12px 14px;
+          transition: all 0.2s ease;
+        }
+        .field-inner:focus-within {
+          border-color: #a5b4fc;
+          background: #ffffff;
+          box-shadow: 0 0 0 3px rgba(165,180,252,0.2);
+        }
+        .field-icon {
+          color: #94a3b8;
+          flex-shrink: 0;
+          transition: color 0.2s;
+        }
+        .field-inner:focus-within .field-icon {
+          color: #6366f1;
+        }
+        .eye-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #94a3b8;
+          padding: 0;
+          display: flex;
+          align-items: center;
+          transition: color 0.2s;
+        }
+        .eye-btn:hover { color: #475569; }
+
+        @media (max-width: 1024px) {
+          .auth-left { display: none; }
+          .auth-main { justify-content: center; }
+        }
+      `}</style>
+
+      <div className="auth-root" dir="ltr">
+
+        {/* ─── Header ─── */}
+        <header style={{ padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: 1360, width: '100%', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }} onClick={() => router.push('/')}>
+            <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TsswalLogo size={18} style={{ color: 'white' }} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1.5px solid #e2e8f0', paddingLeft: 14 }}>
+              <span className="auth-logo-name">Twassel</span>
+              <span className="auth-logo-sub">Gateway Portal</span>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push('/')}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#64748b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 100, padding: '8px 16px', cursor: 'pointer', transition: 'all 0.2s', fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#f0f4ff'; e.currentTarget.style.color = '#4f46e5'; e.currentTarget.style.borderColor = '#c7d2fe'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+          >
+            <ChevronLeft size={14} /> Back to Home
+          </button>
+        </header>
+
+        {/* ─── Main ─── */}
+        <main
+          className="auth-main"
+          style={{ flex: 1, display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', maxWidth: 1360, width: '100%', margin: '0 auto', padding: '20px 40px 60px', gap: 60 }}
+        >
+
+          {/* Left: Brand copy */}
+          <div className="auth-left" style={{ flex: 1, paddingRight: 40 }}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={mode}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.4 }}
+              >
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 18 }}>
+                  Oran University Network
+                </p>
+
+                <h1 className="left-headline">
+                  {mode === "login" ? (
+                    <>Welcome<br />back to<br /><em>Twassel</em></>
+                  ) : (
+                    <>Join the<br />university<br /><em>community</em></>
+                  )}
+                </h1>
+
+                <WaveLine />
+
+                <p className="left-desc">
+                  {mode === "login"
+                    ? "Sign in with your academic matricule to access your student dashboard, resources, and university network."
+                    : "Create your student account to connect with peers, access resources, and be part of the Oran University ecosystem."}
+                </p>
+
+                <div className="trust-badge">
+                  <span className="trust-dot" />
+                  Secure University Portal
+                </div>
+
+                <div style={{ marginTop: 48, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {[
+                    { icon: "01", text: "Access your academic resources" },
+                    { icon: "02", text: "Connect with fellow students" },
+                    { icon: "03", text: "Manage your university profile" },
+                  ].map(item => (
+                    <div key={item.icon} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <span style={{ width: 32, height: 32, borderRadius: 8, background: '#f0f4ff', border: '1px solid #c7d2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#4f46e5', flexShrink: 0 }}>{item.icon}</span>
+                      <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>{item.text}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Right: Auth Card */}
+          <div style={{ flexShrink: 0, width: '100%', maxWidth: 440 }}>
+            <div className="auth-card">
+
+              {/* Tab switcher */}
+              <div style={{ display: 'flex', gap: 6, background: '#f8fafc', borderRadius: 100, padding: 4, marginBottom: 28 }}>
+                <button className={`tab-btn ${mode === 'login' ? 'active' : 'inactive'}`} onClick={() => setMode("login")} style={{ flex: 1 }}>
+                  Sign In
+                </button>
+                <button className={`tab-btn ${mode === 'register' ? 'active' : 'inactive'}`} onClick={() => setMode("register")} style={{ flex: 1 }}>
+                  Register
+                </button>
+              </div>
+
+              {/* Heading */}
+              <AnimatePresence mode="wait">
+                <motion.div key={mode + "-heading"} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }} style={{ marginBottom: 24 }}>
+                  <h2 className="auth-heading">
+                    {mode === "login" ? "Sign in to your account" : "Create your account"}
+                  </h2>
+                  <p className="auth-sub">
+                    {mode === "login"
+                      ? "Enter your academic matricule and password to continue."
+                      : "Fill in your details to get started with Twassel."}
+                  </p>
+                </motion.div>
+              </AnimatePresence>
+
+              {/* Error message */}
+              <AnimatePresence>
+                {error && (
+                  <motion.div className="error-box" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} style={{ marginBottom: 20 }}>
+                    <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span>{error}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* Matricule */}
+                <div className="field-wrapper">
+                  <label>Academic Matricule</label>
+                  <div className="field-inner">
+                    <Hash size={15} className="field-icon" />
+                    <input
+                      type="text" name="matricule" required
+                      value={formData.matricule} onChange={handleInputChange}
+                      className="field-input" placeholder="2026-ST-XXX"
+                    />
+                  </div>
+                </div>
+
+                {/* Register-only fields */}
+                <AnimatePresence>
+                  {mode === "register" && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      style={{ display: 'flex', flexDirection: 'column', gap: 16, overflow: 'hidden' }}
+                    >
+                      <div className="field-wrapper">
+                        <label>Full Name</label>
+                        <div className="field-inner">
+                          <User size={15} className="field-icon" />
+                          <input
+                            type="text" name="fullName" required
+                            value={formData.fullName} onChange={handleInputChange}
+                            className="field-input" placeholder="Your full name"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="field-wrapper">
+                        <label>Institutional Email</label>
+                        <div className="field-inner">
+                          <Mail size={15} className="field-icon" />
+                          <input
+                            type="email" name="email" required
+                            value={formData.email} onChange={handleInputChange}
+                            className="field-input" placeholder="scholar@univ.dz"
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Password */}
+                <div className="field-wrapper">
+                  <label>Password</label>
+                  <div className="field-inner">
+                    <Lock size={15} className="field-icon" />
+                    <input
+                      type={showPwd ? "text" : "password"} name="password" required
+                      value={formData.password} onChange={handleInputChange}
+                      className="field-input" placeholder="Enter your password"
+                    />
+                    <button type="button" className="eye-btn" onClick={() => setShowPwd(!showPwd)}>
+                      {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* ID Card Upload */}
+                <AnimatePresence>
+                  {mode === "register" && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => setIdCard(e.target.files[0])} style={{ display: 'none' }} />
+                      <button
+                        type="button"
+                        onClick={() => fileRef.current?.click()}
+                        className={`upload-btn ${idCard ? 'has-file' : ''}`}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                            University ID Card
+                          </span>
+                          <span className="upload-label">
+                            {idCard ? idCard.name : "Click to upload your student ID"}
+                          </span>
+                        </div>
+                        {idCard
+                          ? <CheckCircle size={18} style={{ color: '#6366f1', flexShrink: 0 }} />
+                          : <Camera size={18} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                        }
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Divider */}
+                <div className="divider-tag" style={{ margin: '4px 0' }}>
+                  <div className="divider-line" />
+                  <span>{mode === "login" ? "Access" : "Submit"}</span>
+                  <div className="divider-line" />
+                </div>
+
+                {/* Submit */}
+                <button type="submit" disabled={loading} className="submit-btn">
+                  {loading
+                    ? <><Loader2 size={16} className="animate-spin" /> Processing...</>
+                    : mode === "login" ? "Sign In to Twassel" : "Create My Account"
+                  }
+                </button>
+
+                {/* Mode switch hint */}
+                <p style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                  {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+                  <button
+                    type="button"
+                    onClick={() => setMode(mode === "login" ? "register" : "login")}
+                    style={{ background: 'none', border: 'none', color: '#4f46e5', fontWeight: 700, cursor: 'pointer', fontSize: 12, padding: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                  >
+                    {mode === "login" ? "Register here" : "Sign in instead"}
+                  </button>
+                </p>
+
+              </form>
+            </div>
+
+            {/* Footer note */}
+            <p style={{ textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 16, lineHeight: 1.6 }}>
+              By continuing, you agree to Twassel's terms of service and privacy policy.
+            </p>
+          </div>
+
+        </main>
+      </div>
+    </>
   );
 }

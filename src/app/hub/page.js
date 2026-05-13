@@ -1,378 +1,315 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 import {
-  FiSend, FiHeart, FiMessageCircle, FiBell,
-  FiTrendingUp, FiBookOpen, FiRefreshCw,
-  FiCompass, FiUsers, FiArrowRight,
-} from "react-icons/fi";
-import Sidebar from "@/components/Sidebar";
-import DiscoveryGrid from "@/components/DiscoveryGrid";
-import { auth } from "@/lib/firebase";
+  Send, Sparkles, PenTool, Users, Compass,
+  Paperclip, FileText, X, Loader2,
+  Heart, MessageCircle, MoreHorizontal
+} from "lucide-react";
+
+// ─── الاستيرادات الأساسية ───
+import { auth, firestore } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { api } from "@/lib/apiClient";
-import { useAllGroups } from "@/lib/useAllGroups";
+import {
+  collection, query, orderBy, onSnapshot, addDoc,
+  serverTimestamp, doc, getDoc, updateDoc, arrayUnion, arrayRemove, increment, where
+} from "firebase/firestore";
+import { COL } from "@/lib/collections";
+import { useFileUpload } from "@/lib/useFileUpload";
 
-/* ════════════════════════════════════════════════════════════════════
-   HUB PAGE — Polling MongoDB toutes les 5s (zéro Firestore)
-══════════════════════════════════════════════════════════════════════ */
+// ─── المكونات الخارجية ───
+import Sidebar from "@/components/Sidebar";
+import TsswalLogo from "@/components/TsswalLogo";
+import ActiveNodesSidebar from "@/components/chat/ActiveNodesSidebar";
 
-const POLL_MS = 5000;
+/**
+ * مكون فرعي لعرض الردود الأكاديمية (التعليقات)
+ */
+function PostComments({ postId }) {
+  const [replies, setReplies] = useState([]);
 
-const TAGS = ["General", "Question", "Reminder", "Tip", "Milestone"];
-const TAG_STYLE = {
-  General: "bg-white/5 text-slate-300 border-white/10",
-  Question: "bg-amber-500/10 text-amber-300 border-amber-400/30",
-  Reminder: "bg-rose-500/10 text-rose-300 border-rose-400/30",
-  Tip: "bg-blue-500/10 text-blue-300 border-blue-400/30",
-  Milestone: "bg-emerald-500/10 text-emerald-300 border-emerald-400/30",
-};
+  useEffect(() => {
+    const q = query(collection(firestore, COL.POSTS, postId, "replies"), orderBy("createdAt", "asc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setReplies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, [postId]);
+
+  return (
+    <div className="mt-6 space-y-4 px-4 border-l border-white/5 ml-4 text-left">
+      {replies.map((reply) => (
+        <div key={reply.id} className="animate-in fade-in slide-in-from-left-2 duration-500">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[9px] font-black text-brand-indigo uppercase tracking-widest">
+              {reply.authorName}
+            </span>
+          </div>
+          <p className="text-[12px] text-slate-400 font-serif italic leading-relaxed">{reply.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function HubPage() {
   const router = useRouter();
+  const { upload, uploading } = useFileUpload();
+
   const [currentUser, setCurrentUser] = useState(null);
-  const [userData, setUserData] = useState(null);
   const [posts, setPosts] = useState([]);
-  const [postText, setPostText] = useState("");
-  const [selectedTag, setSelectedTag] = useState("General");
-  const [posting, setPosting] = useState(false);
+  const [userNodes, setUserNodes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingNodes, setLoadingNodes] = useState(true);
 
-  // Discovery: fetch all groups for the discovery grid
-  const { groups: allGroups, currentUid, isEmpty } = useAllGroups();
+  // حالات النشر (Composer)
+  const [postText, setPostText] = useState("");
+  const [attachedFile, setAttachedFile] = useState(null);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
 
-  // ── Auth ──
+  // حالات التعليق
+  const [activeCommentId, setActiveCommentId] = useState(null);
+  const [commentText, setCommentText] = useState("");
+
+  const fileInputRef = useRef(null);
+
+  // 1. التحقق من الهوية (Identity Sync)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!u) return;
-      setCurrentUser(u);
-      try {
-        const data = await api("/api/user/profile");
-        setUserData(data);
-      } catch { }
+      if (u) {
+        const userSnap = await getDoc(doc(firestore, COL.USERS, u.uid));
+        if (userSnap.exists() && userSnap.data().status === "active") {
+          setCurrentUser({ id: u.uid, uid: u.uid, ...userSnap.data() });
+          setLoading(false);
+        } else {
+          router.push("/pending");
+        }
+      } else {
+        router.push("/auth");
+      }
     });
     return unsub;
-  }, []);
+  }, [router]);
 
-  // ── GET public : tous les posts (polling 5s) ──
-  const fetchPosts = async () => {
-    try {
-      const res = await fetch("/api/posts?limit=50");
-      const data = await res.json();
-      setPosts(data.posts || []);
-    } catch (e) {
-      console.error("[hub] fetch posts", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 2. مزامنة البث العام (Broadcast Stream)
   useEffect(() => {
-    fetchPosts();
-    const id = setInterval(fetchPosts, POLL_MS);
-    return () => clearInterval(id);
-  }, []);
-
-  // ── POST : créer un post (auth requis) ──
-  const submitPost = async () => {
-    if (!postText.trim() || !currentUser || posting) return;
-    const text = postText.trim();
-    setPostText("");
-    setPosting(true);
-    try {
-      const newPost = await api("/api/posts", {
-        method: "POST",
-        body: { text, tag: selectedTag },
-      });
-      setPosts((prev) => [newPost, ...prev]);
-      setSelectedTag("General");
-    } catch (e) {
-      console.error("[hub] submit", e);
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  // ── POST : toggle like (auth requis) ──
-  const toggleLike = async (post) => {
     if (!currentUser) return;
-    const liked = post.likes?.includes(currentUser.uid);
-    // Optimistic
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === post.id
-          ? { ...p, likes: liked ? p.likes.filter((u) => u !== currentUser.uid) : [...(p.likes || []), currentUser.uid] }
-          : p
-      )
+    const q = query(collection(firestore, COL.POSTS), orderBy("createdAt", "desc"));
+    const unsubPosts = onSnapshot(q, (snap) => {
+      setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubPosts();
+  }, [currentUser]);
+
+  // 3. مزامنة العقد النشطة (Active Nodes Sync)
+  useEffect(() => {
+    const currentId = currentUser?.uid || currentUser?.id;
+    if (!currentId) return;
+
+    const q = query(
+      collection(firestore, COL.GROUPS),
+      where("members", "array-contains", currentId) // ✅ التصحيح هنا
     );
-    try {
-      await api(`/api/posts/${post.id}/like`, { method: "POST" });
-    } catch { }
+
+    const unsubNodes = onSnapshot(q,
+      (snap) => {
+        setUserNodes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoadingNodes(false);
+      },
+      (error) => {
+        console.error("Nodes Sync Error:", error);
+        setLoadingNodes(false);
+      }
+    );
+
+    return () => unsubNodes();
+  }, [currentUser]);
+
+  // 4. منطق الإعجاب
+  const handleLike = async (postId, likesArray) => {
+    const postRef = doc(firestore, COL.POSTS, postId);
+    const isLiked = likesArray?.includes(currentUser.id);
+    await updateDoc(postRef, {
+      likes: isLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id)
+    });
   };
 
-  const displayName = userData?.fullName || currentUser?.email?.split("@")[0] || "Vous";
+  // 5. إرسال رد أكاديمي
+  const handleSendComment = async (postId) => {
+    if (!commentText.trim()) return;
+    try {
+      await addDoc(collection(firestore, COL.POSTS, postId, "replies"), {
+        uid: currentUser.id,
+        authorName: currentUser.fullName,
+        text: commentText,
+        createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(firestore, COL.POSTS, postId), { repliesCount: increment(1) });
+      setCommentText("");
+    } catch (e) { console.error(e); }
+  };
+
+  // 6. بث منشور جديد
+  const handleBroadcast = async () => {
+    if ((!postText.trim() && !attachedFile) || isBroadcasting) return;
+    setIsBroadcasting(true);
+    try {
+      let fileData = null;
+      if (attachedFile) {
+        const uploadResult = await upload(attachedFile, "tawassol/posts");
+        fileData = { url: uploadResult.url, name: attachedFile.name, type: attachedFile.type };
+      }
+      await addDoc(collection(firestore, COL.POSTS), {
+        uid: currentUser.id,
+        authorName: currentUser.fullName,
+        authorPic: currentUser.profilePicUrl || currentUser.avatarUrl || "",
+        major: currentUser.major || currentUser.department || "",
+        text: postText,
+        file: fileData,
+        likes: [],
+        repliesCount: 0,
+        createdAt: serverTimestamp(),
+      });
+      setPostText("");
+      setAttachedFile(null);
+    } catch (e) { console.error(e); } finally { setIsBroadcasting(false); }
+  };
+
+  if (loading) return (
+    <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+      <TsswalLogo size={40} className="animate-pulse" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden flex">
-      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute top-[5%] right-[-10%] w-[600px] h-[600px] bg-violet-600/15 rounded-full blur-[140px]" />
-        <div className="absolute bottom-[-15%] left-[10%] w-[500px] h-[500px] bg-blue-600/15 rounded-full blur-[120px]" />
-      </div>
+    <div dir="ltr" className="min-h-screen bg-[#050505] text-[#F9FAFB] font-sans selection:bg-brand-indigo/30 relative flex overflow-hidden">
 
-      <Sidebar />
+      <Sidebar currentUser={currentUser} />
 
-      <main className="ml-60 flex-1 p-8 flex gap-7 justify-center">
-        <div className="w-full max-w-xl">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-black tracking-tight">Hub Étudiant</h2>
-              <p className="text-sm text-slate-400 mt-0.5">Partagez questions, astuces et étapes franchies</p>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-300 bg-white/5 border border-white/10 px-3 py-2 rounded-xl backdrop-blur-sm">
-              <FiRefreshCw size={12} className="text-emerald-400" />
-              Auto-refresh 5s
-            </div>
-          </div>
+      <main className="flex-1 lg:ml-[280px] px-6 py-10 lg:px-16 flex flex-col xl:flex-row justify-between relative z-10 overflow-y-auto custom-scrollbar h-screen text-left">
 
-          {/* Composer */}
-          <div className="bg-white/[0.04] rounded-3xl border border-white/10 backdrop-blur-md p-5 mb-6">
-            <div className="flex gap-3 mb-4">
-              <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-lg shadow-violet-500/40 ring-1 ring-white/20">
-                {displayName[0]?.toUpperCase()}
+        <div className="flex-1 max-w-[680px] pb-32">
+          <header className="mb-10">
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <h1 className="text-[38px] xl:text-[48px] font-serif font-black italic tracking-tighter leading-none text-white">The Hub.</h1>
+              <div className="flex items-center gap-3 mt-3">
+                <div className="h-[1px] w-6 bg-brand-indigo/40" />
+                <p className="text-[8px] font-bold text-slate-600 uppercase tracking-[0.4em]">Central Node: {currentUser?.university}</p>
               </div>
-              <textarea
-                value={postText}
-                onChange={(e) => setPostText(e.target.value)}
-                placeholder="Partagez une question, une ressource ou une mise à jour..."
-                rows={2}
-                className="flex-1 resize-none bg-transparent outline-none text-sm text-white placeholder:text-slate-500 pt-1.5 leading-relaxed"
-              />
-            </div>
-            <div className="flex gap-1.5 mb-3 flex-wrap">
-              {TAGS.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => setSelectedTag(tag)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${selectedTag === tag
-                      ? TAG_STYLE[tag] + " ring-2 ring-offset-2 ring-offset-slate-950 ring-violet-500/50"
-                      : "bg-white/5 text-slate-500 border-white/10 hover:border-white/20"
-                    }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-end border-t border-white/10 pt-3">
-              <button
-                onClick={submitPost}
-                disabled={!postText.trim() || posting}
-                className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-violet-600 text-white px-5 py-2 rounded-full text-sm font-bold shadow-lg shadow-violet-500/40 ring-1 ring-white/20 hover:from-blue-400 hover:to-violet-500 transition-all active:scale-95 disabled:opacity-40"
-              >
-                Publier <FiSend size={13} />
-              </button>
-            </div>
-          </div>
+            </motion.div>
+          </header>
 
-          {/* Posts list */}
-          <div className="space-y-4">
-            {loading && (
-              <div className="flex items-center justify-center py-16">
-                <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+          {/* Composer Section */}
+          <section className="bg-[#0A0A0B] border border-white/5 rounded-[2rem] p-6 mb-12 focus-within:border-white/10 transition-all shadow-premium">
+            <div className="flex gap-5">
+              <div className="w-10 h-10 shrink-0 bg-white/5 border border-white/10 rounded-xl overflow-hidden flex items-center justify-center italic text-xs">
+                {currentUser?.profilePicUrl ? (
+                  <img src={currentUser.profilePicUrl} className="w-full h-full object-cover" />
+                ) : currentUser?.fullName?.[0]}
               </div>
-            )}
-            <AnimatePresence>
-              {posts.map((post, i) => {
-                const liked = post.likes?.includes(currentUser?.uid);
-                const time = post.createdAt
-                  ? new Date(post.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-                  : null;
+              <div className="flex-1 flex flex-col text-left">
+                <textarea
+                  value={postText}
+                  onChange={(e) => setPostText(e.target.value)}
+                  placeholder="What's on your academic mind?"
+                  className="w-full bg-transparent border-none outline-none text-[16px] font-serif italic text-slate-200 placeholder:text-slate-900 resize-none min-h-[60px]"
+                />
+                <AnimatePresence>
+                  {attachedFile && (
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="mt-4 p-2 bg-white/5 border border-white/5 rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileText size={14} className="text-brand-indigo" />
+                        <span className="text-[9px] font-bold text-slate-500 truncate max-w-[180px]">{attachedFile.name}</span>
+                      </div>
+                      <button onClick={() => setAttachedFile(null)} className="text-slate-600 hover:text-white bg-transparent border-none cursor-pointer"><X size={12} /></button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
+                  <div className="flex gap-1">
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setAttachedFile(e.target.files[0])} />
+                    <button onClick={() => fileInputRef.current.click()} className="p-2.5 text-slate-600 hover:text-brand-indigo rounded-lg transition-all bg-transparent border-none cursor-pointer"><Paperclip size={16} /></button>
+                  </div>
+                  <button onClick={handleBroadcast} disabled={isBroadcasting || uploading} className="bg-white text-black px-8 py-3.5 rounded-full text-[9px] font-black uppercase tracking-[0.3em] shadow-glow hover:bg-brand-indigo hover:text-white transition-all border-none cursor-pointer disabled:opacity-20">
+                    {isBroadcasting || uploading ? <Loader2 size={12} className="animate-spin" /> : "Broadcast"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Broadcast List */}
+          <section className="space-y-6">
+            <AnimatePresence mode="popLayout">
+              {posts.map((post) => {
+                const isLiked = post.likes?.includes(currentUser?.id);
                 return (
-                  <motion.div
-                    key={post.id}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i < 5 ? i * 0.05 : 0 }}
-                    className="bg-white/[0.04] rounded-3xl border border-white/10 backdrop-blur-md p-5 hover:bg-white/[0.06] hover:border-white/20 transition-all"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex gap-3">
-                        <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-lg shadow-violet-500/30 ring-1 ring-white/20">
-                          {post.authorName?.[0]?.toUpperCase() || "S"}
-                        </div>
+                  <motion.article key={post.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-[#0A0A0B] border border-white/5 rounded-[2rem] p-8 hover:border-white/10 transition-all">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-white/5 border border-white/10 rounded-lg overflow-hidden flex items-center justify-center text-xs italic">{post.authorPic ? <img src={post.authorPic} className="w-full h-full object-cover" /> : post.authorName?.[0]}</div>
                         <div>
-                          <p className="font-bold text-sm text-white">{post.authorName}</p>
-                          <p className="text-xs text-slate-500">{time || "À l'instant"}</p>
+                          <p className="font-bold text-[12px] text-white leading-none">{post.authorName}</p>
+                          <p className="text-[7px] text-slate-600 font-bold uppercase tracking-widest mt-1">{post.major}</p>
                         </div>
                       </div>
-                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${TAG_STYLE[post.tag] || TAG_STYLE.General}`}>
-                        {post.tag}
-                      </span>
+                      <MoreHorizontal size={16} className="text-slate-800" />
                     </div>
-                    <p className="text-sm text-slate-200 leading-relaxed mb-4">{post.text}</p>
-                    <div className="flex items-center gap-4 border-t border-white/10 pt-3">
-                      <button
-                        onClick={() => toggleLike(post)}
-                        className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${liked ? "text-rose-400" : "text-slate-500 hover:text-rose-400"}`}
-                      >
-                        <FiHeart size={15} className={liked ? "fill-rose-400" : ""} />
-                        {post.likes?.length || 0}
+                    <p className="text-md font-serif italic text-slate-300 whitespace-pre-wrap mb-6 text-left">{post.text}</p>
+                    {post.file && (
+                      <div className="p-4 bg-black/40 border border-white/5 rounded-xl flex items-center gap-4 mb-6">
+                        <FileText className="text-brand-indigo" size={20} />
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-[9px] font-black text-white uppercase truncate">{post.file.name}</p>
+                          <a href={post.file.url} target="_blank" className="text-[7px] text-brand-indigo font-bold uppercase no-underline hover:underline">Download Resource</a>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-6 mt-4 pt-6 border-t border-white/5">
+                      <button onClick={() => handleLike(post.id, post.likes)} className={`flex items-center gap-2 text-[9px] font-black uppercase bg-transparent border-none cursor-pointer ${isLiked ? 'text-rose-500' : 'text-slate-700 hover:text-rose-500'}`}>
+                        <Heart size={14} fill={isLiked ? "currentColor" : "none"} /> {post.likes?.length || 0}
                       </button>
-                      <button className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-blue-400 transition-colors">
-                        <FiMessageCircle size={15} />
-                        Répondre
+                      <button onClick={() => setActiveCommentId(activeCommentId === post.id ? null : post.id)} className="flex items-center gap-2 text-[9px] font-black text-slate-700 hover:text-brand-indigo bg-transparent border-none cursor-pointer uppercase tracking-widest">
+                        <MessageCircle size={14} /> {post.repliesCount || 0} Replies
                       </button>
                     </div>
-                  </motion.div>
+                    <AnimatePresence>
+                      {activeCommentId === post.id && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                          <PostComments postId={post.id} />
+                          <div className="mt-6 flex gap-2 bg-white/[0.02] border border-white/5 p-2 rounded-xl">
+                            <input value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendComment(post.id)} placeholder="Reply to node..." className="flex-1 bg-transparent border-none outline-none px-3 py-2 text-[11px] text-white italic font-serif" />
+                            <button onClick={() => handleSendComment(post.id)} className="w-8 h-8 bg-brand-indigo text-white rounded-lg flex items-center justify-center border-none cursor-pointer"><Send size={12} /></button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.article>
                 );
               })}
             </AnimatePresence>
-            {!loading && posts.length === 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-                className="relative rounded-3xl bg-white/[0.03] border border-white/[0.08] backdrop-blur-md p-10 text-center overflow-hidden"
-              >
-                {/* Ambient glow */}
-                <div aria-hidden className="absolute -top-16 left-1/2 -translate-x-1/2 w-64 h-64 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
-
-                {/* Icon */}
-                <motion.div
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: 0.15, duration: 0.4 }}
-                  className="relative mx-auto mb-5 w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/20 flex items-center justify-center"
-                >
-                  <FiCompass size={36} className="text-indigo-400" />
-                  {/* Pulse ring */}
-                  <span className="absolute inset-0 rounded-2xl border border-indigo-400/30 animate-ping opacity-20" />
-                </motion.div>
-
-                {/* Text */}
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.25, duration: 0.4 }}
-                >
-                  <h3 className="text-lg font-black text-white mb-2">Your feed is currently quiet.</h3>
-                  <p className="text-sm text-slate-500 leading-relaxed max-w-xs mx-auto mb-6">
-                    Join a study circle or explore the platform to start seeing updates here.
-                  </p>
-                </motion.div>
-
-                {/* CTA */}
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.35, duration: 0.4 }}
-                >
-                  <button
-                    onClick={() => router.push("/explore")}
-                    className="group relative inline-flex items-center gap-2 px-7 py-3 rounded-[32px] bg-gradient-to-r from-indigo-500 to-violet-600 text-white text-sm font-bold hover:from-indigo-400 hover:to-violet-500 active:scale-[0.97] transition-all shadow-lg shadow-indigo-500/30 ring-1 ring-white/20"
-                  >
-                    <span aria-hidden className="absolute -inset-1 bg-indigo-500 blur-xl opacity-30 group-hover:opacity-50 transition-opacity rounded-full" />
-                    <span className="relative flex items-center gap-2">
-                      Explore Circles
-                      <FiArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
-                    </span>
-                  </button>
-                </motion.div>
-              </motion.div>
-            )}
-          </div>
+          </section>
         </div>
 
-        {/* Right sidebar */}
-        <div className="w-80 flex-shrink-0 hidden xl:block">
-          <div className="sticky top-8 space-y-4">
-            <div className="rounded-3xl bg-gradient-to-br from-blue-600/30 to-violet-600/30 border border-white/10 backdrop-blur-md p-5 relative overflow-hidden">
-              <div className="absolute -top-10 -right-10 w-32 h-32 bg-violet-500/30 rounded-full blur-3xl" />
-              <div className="relative">
-                <div className="w-9 h-9 bg-white/15 rounded-xl flex items-center justify-center mb-3 ring-1 ring-white/20">
-                  <FiBookOpen size={17} className="text-white" />
-                </div>
-                <h3 className="font-bold text-sm mb-1 text-white">Créer un groupe d&apos;étude</h3>
-                <p className="text-xs text-slate-300 mb-4 leading-relaxed">Rassemblez vos camarades et collaborez en temps réel.</p>
-                <a href="/groups/create" className="block text-center bg-white text-slate-900 font-bold text-xs py-2.5 rounded-xl hover:bg-blue-50 transition-all">
-                  Créer un groupe →
-                </a>
-              </div>
-            </div>
-            <div className="rounded-3xl bg-white/[0.04] border border-white/10 backdrop-blur-md p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <FiTrendingUp size={14} className="text-emerald-400" />
-                <h3 className="font-bold text-sm text-white">Tags populaires</h3>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {["#Algorithmes", "#Examen", "#Python", "#DataScience", "#Astuces"].map((tag) => (
-                  <span key={tag} className="text-[11px] font-semibold bg-white/5 border border-white/10 text-slate-300 px-2.5 py-1 rounded-full hover:bg-violet-500/20 hover:border-violet-400/40 hover:text-violet-200 cursor-pointer transition-colors">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
+        {/* Right Sidebar */}
+        <aside className="hidden xl:flex flex-col w-[320px] sticky top-10 h-fit ml-auto">
+          <ActiveNodesSidebar
+            nodes={userNodes}
+            currentUser={currentUser}
+            loading={loadingNodes}
+          />
+        </aside>
 
-            {/* Active Circles */}
-            <div className="rounded-3xl bg-white/[0.04] border border-white/10 backdrop-blur-md p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <FiUsers size={14} className="text-indigo-400" />
-                <h3 className="font-bold text-sm text-white">Active Circles</h3>
-              </div>
-              {allGroups.filter((g) => g.members?.includes(currentUid)).length === 0 ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.4 }}
-                  className="py-3"
-                >
-                  <p className="text-xs italic text-slate-400 mb-2">No active circles yet.</p>
-                  <button
-                    onClick={() => router.push("/explore")}
-                    className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline underline-offset-2 transition-colors"
-                  >
-                    + Find a group to join
-                  </button>
-                </motion.div>
-              ) : (
-                <div className="space-y-2">
-                  {allGroups
-                    .filter((g) => g.members?.includes(currentUid))
-                    .slice(0, 5)
-                    .map((g, i) => (
-                      <motion.button
-                        key={g.id}
-                        initial={{ opacity: 0, x: -8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        onClick={() => router.push(`/hub/chat/${g.id}`)}
-                        className="w-full flex items-center gap-2.5 p-2 rounded-xl hover:bg-white/5 transition-colors text-left group"
-                      >
-                        <div className="w-7 h-7 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-lg flex items-center justify-center text-white text-[10px] font-black ring-1 ring-white/20 shrink-0">
-                          {g.name?.[0]}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-white truncate">{g.name}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{g.subject}</p>
-                        </div>
-                        <FiArrowRight size={10} className="text-slate-600 group-hover:text-indigo-400 transition-colors shrink-0" />
-                      </motion.button>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            {/* Discovery Grid */}
-            <DiscoveryGrid
-              groups={allGroups}
-              currentUid={currentUid}
-              maxCards={4}
-              compact
-              isEmpty={isEmpty}
-            />
-          </div>
-        </div>
       </main>
+
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 2px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.02); border-radius: 10px; }
+      `}} />
     </div>
   );
 }

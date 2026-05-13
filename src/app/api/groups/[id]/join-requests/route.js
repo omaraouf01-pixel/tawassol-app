@@ -9,7 +9,14 @@ export const GET = withAuth(async (_req, { params }, { uid }) => {
   const group = gSnap.data();
   if (group.leaderId !== uid) return jsonError("Forbidden", 403);
 
-  return jsonOk({ requests: group.pendingRequests || [] });
+  const reqsSnap = await joinRequestsCol()
+    .where("groupId", "==", params.id)
+    .where("status", "==", "pending")
+    .get();
+
+  const requests = reqsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  return jsonOk({ requests });
 }, "JOIN_REQ_LIST");
 
 // POST /api/groups/[id]/join-requests
@@ -21,27 +28,31 @@ export const POST = withAuth(async (req, { params }, { uid, user }) => {
   if ((group.members || []).includes(uid)) return jsonError("Already a member", 409);
   if (!user) return jsonError("User not found", 404);
 
-  const pending = group.pendingRequests || [];
-  if (pending.some(r => r.userId === uid)) {
+  // Check if already pending
+  const existingReqs = await joinRequestsCol()
+    .where("groupId", "==", params.id)
+    .where("userId", "==", uid)
+    .where("status", "==", "pending")
+    .get();
+
+  if (!existingReqs.empty) {
     return jsonError("Demande déjà en cours", 409);
   }
 
   const body = await safeJson(req);
   const answers = Array.isArray(body.answers) ? body.answers : [];
 
-  const newReq = {
-    id: `req_${Date.now()}_${uid}`,
+  const newReqRef = joinRequestsCol().doc();
+  const newReq = buildJoinRequestDoc({
+    groupId: params.id,
+    groupName: group.name,
     userId: uid,
     userName: user.fullName,
     matricule: user.matricule || "",
     answers,
-    status: "pending",
-    createdAt: new Date().toISOString(),
-  };
-
-  await groupRef.update({
-    pendingRequests: FieldValue.arrayUnion(newReq)
   });
 
-  return jsonOk({ id: newReq.id, status: "pending" }, 201);
+  await newReqRef.set(newReq);
+
+  return jsonOk({ id: newReqRef.id, status: "pending" }, 201);
 }, "JOIN_REQ_CREATE");

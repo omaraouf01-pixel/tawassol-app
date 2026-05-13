@@ -1,107 +1,140 @@
 "use client";
-import Link from "next/link";
+
+import React from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
-  FiHome, FiCompass, FiUser, FiShield,
-  FiLogOut, FiPlus,
-} from "react-icons/fi";
-import { signOut } from "firebase/auth";
+  LayoutGrid,
+  Compass,
+  User,
+  ShieldCheck,
+  LogOut,
+  ChevronRight,
+  Plus
+} from "lucide-react";
+
+import { motion } from "framer-motion";
+
+// ─── الاستيرادات الأساسية ───
 import { auth } from "@/lib/firebase";
-import { useAuth } from "@/lib/useAuth";
-import TsswalLogo from "@/components/TsswalLogo";
-import NotificationsBell from "@/components/NotificationsBell";
+import { signOut } from "firebase/auth";
+import TsswalLogo from "./TsswalLogo";
 
-const NAV = [
-  { label: "Hub", icon: FiHome, href: "/hub" },
-  { label: "Explore", icon: FiCompass, href: "/explore" },
-  { label: "Profile", icon: FiUser, href: "/profile" },
-];
-
-export default function Sidebar() {
-  const pathname = usePathname();
+export default function Sidebar({ currentUser }) {
   const router = useRouter();
-  const { user, userData } = useAuth();
+  const pathname = usePathname();
 
-  const name = userData?.name || user?.email?.split("@")[0] || "Étudiant";
-  const initial = name[0]?.toUpperCase() || "S";
-  const role = userData?.role === "admin" ? "Admin" : "Étudiant";
+  const menu = [
+    { label: "The Hub", icon: LayoutGrid, href: "/hub" },
+    { label: "Explore", icon: Compass, href: "/explore" },
+    { label: "Profile", icon: User, href: "/profile" },
+  ];
 
   const handleLogout = async () => {
-    await signOut(auth);
-    router.push("/auth");
+    try {
+      await signOut(auth);
+      router.push("/auth");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
-    <aside className="w-60 h-screen bg-slate-950 border-r border-white/10 fixed left-0 top-0 flex flex-col p-4 z-20 backdrop-blur-xl">
-      {/* Decorative blob */}
-      <div aria-hidden className="absolute top-0 left-0 w-60 h-60 bg-violet-600/20 rounded-full blur-[100px] pointer-events-none -z-10" />
+    <aside className="w-[280px] h-screen bg-black border-r border-white/5 fixed left-0 top-0 flex flex-col z-40 p-8 text-left transition-all duration-500">
 
-      {/* Logo + bell */}
-      <div className="flex items-center justify-between px-2 py-2 mb-6">
-        <Link href="/hub" className="flex group">
-          <TsswalLogo size={28} lockup glow className="group-hover:scale-[1.02] transition-transform" />
-        </Link>
-        <NotificationsBell />
+      {/* ─── الشعار ─── */}
+      <div className="flex items-center gap-4 mb-16 group cursor-pointer" onClick={() => router.push('/hub')}>
+        <div className="w-10 h-10 bg-brand-indigo/10 rounded-2xl flex items-center justify-center text-brand-indigo border border-brand-indigo/20 shadow-glow group-hover:scale-110 transition-transform">
+          <TsswalLogo size={20} />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[14px] font-black uppercase tracking-[0.3em] text-white leading-none">Twassel</span>
+          <span className="text-[7px] font-bold text-brand-indigo/60 uppercase tracking-[0.2em] mt-1.5 italic">Node Network</span>
+        </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 space-y-1">
-        {NAV.map((item) => {
-          const active = pathname === item.href || (item.href !== "/hub" && pathname.startsWith(item.href));
+      {/* ─── القائمة (تم نزع العنوان منها) ─── */}
+      <nav className="flex-1 space-y-3">
+        {menu.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href;
+
           return (
-            <Link
+            <button
               key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all relative ${
-                active
-                  ? "bg-gradient-to-r from-blue-500 to-violet-600 text-white shadow-lg shadow-violet-500/30 ring-1 ring-white/20"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white"
-              }`}
+              onClick={() => router.push(item.href)}
+              className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 relative border-none cursor-pointer ${isActive
+                ? "bg-white/[0.03] text-white border border-white/5 shadow-premium"
+                : "bg-transparent text-slate-600 hover:text-slate-200 hover:bg-white/[0.01]"
+                }`}
             >
-              <item.icon size={17} />
-              {item.label}
-            </Link>
+              <Icon size={18} className={isActive ? "text-brand-indigo" : "text-slate-800"} />
+              <span className="relative z-10">{item.label}</span>
+
+              {isActive && (
+                <motion.div
+                  layoutId="sidebarGlow"
+                  className="absolute left-[-2px] w-1 h-5 bg-brand-indigo rounded-full shadow-glow"
+                />
+              )}
+            </button>
           );
         })}
-        {userData?.role === "admin" && (
-          <Link
-            href="/admin"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-              pathname === "/admin"
-                ? "bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white shadow-lg shadow-fuchsia-500/30 ring-1 ring-white/20"
-                : "text-slate-400 hover:bg-white/5 hover:text-white"
-            }`}
-          >
-            <FiShield size={17} />
-            Admin
-          </Link>
-        )}
       </nav>
 
-      {/* Bottom */}
-      <div className="space-y-2 mt-4">
-        <Link
-          href="/groups/create"
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-200 text-sm font-bold hover:bg-white/10 hover:border-violet-400/30 transition-all"
+      {/* ─── القسم السفلي ─── */}
+      <div className="space-y-4 pt-8 border-t border-white/5">
+
+        {/* زر إنشاء مجموعة (Forge Node) */}
+        <button
+          onClick={() => router.push('/groups/create')}
+          className="w-full flex items-center justify-center gap-3 py-4 bg-brand-indigo text-white rounded-2xl text-[9px] font-black uppercase tracking-[0.2em] shadow-glow hover:bg-white hover:text-black transition-all duration-500 group border-none cursor-pointer"
         >
-          <FiPlus size={15} />
-          Nouveau groupe
-        </Link>
-        <div className="flex items-center gap-3 p-3 bg-white/[0.04] border border-white/10 rounded-xl backdrop-blur-sm">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-violet-600 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-lg shadow-violet-500/40 ring-1 ring-white/20">
-            {initial}
+          <Plus size={16} className="group-hover:rotate-90 transition-transform duration-500" />
+          <span>Forge New Node</span>
+        </button>
+
+        {currentUser?.role === "admin" && (
+          <button
+            onClick={() => router.push("/admin")}
+            className="w-full flex items-center justify-between px-6 py-4 bg-brand-indigo/10 text-brand-indigo rounded-2xl text-[9px] font-black uppercase tracking-[0.2em] border border-brand-indigo/10 hover:bg-brand-indigo hover:text-white transition-all cursor-pointer shadow-glow"
+          >
+            <div className="flex items-center gap-3">
+              <ShieldCheck size={16} />
+              <span>Overseer Panel</span>
+            </div>
+            <ChevronRight size={14} />
+          </button>
+        )}
+
+        {/* كارت المستخدم */}
+        <div
+          onClick={() => router.push('/profile')}
+          className="group p-5 bg-white/[0.02] border border-white/5 rounded-[2rem] flex items-center gap-4 hover:border-white/10 transition-all cursor-pointer"
+        >
+          <div className="w-11 h-11 bg-white/5 rounded-xl overflow-hidden border border-white/5 flex items-center justify-center shrink-0 group-hover:border-brand-indigo/30 transition-all">
+            {currentUser?.profilePicUrl ? (
+              <img src={currentUser.profilePicUrl} className="w-full h-full object-cover" alt="Avatar" />
+            ) : (
+              <span className="text-white font-serif italic font-black">{currentUser?.fullName?.[0]}</span>
+            )}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-white truncate">{name}</p>
-            <p className="text-xs text-slate-500">{role}</p>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-[11px] font-black text-white truncate uppercase tracking-widest leading-none">
+              {currentUser?.fullName}
+            </p>
+            <p className="text-[8px] font-bold text-slate-600 uppercase tracking-[0.2em] mt-2 italic truncate">
+              {currentUser?.major || "Scholar"}
+            </p>
           </div>
         </div>
+
+        {/* زر الخروج */}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 transition-all text-sm font-semibold"
+          className="w-full flex items-center justify-center gap-3 py-2 text-slate-700 hover:text-rose-500 text-[9px] font-black uppercase tracking-[0.4em] bg-transparent border-none cursor-pointer transition-colors"
         >
-          <FiLogOut size={16} />
-          Déconnexion
+          <LogOut size={14} />
+          Terminate Link
         </button>
       </div>
     </aside>

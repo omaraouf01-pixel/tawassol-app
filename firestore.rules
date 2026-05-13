@@ -70,13 +70,16 @@ service cloud.firestore {
 
     // ─── messages (top-level) ────────────────────────────────
     // Lecture : uniquement les membres du groupe (ou admin).
-    // Écriture : interdite en direct (passer par /api/groups/[id]/messages).
+    // Création : interdite en direct (passer par /api/groups/[id]/messages).
+    // Update/Delete : le leader du groupe peut modérer les fichiers.
     match /messages/{messageId} {
       allow read: if isSignedIn() && (
         isAdmin() ||
         isMemberOfGroup(resource.data.groupId)
       );
-      allow write: if false;
+      allow create: if false;
+      allow update, delete: if isSignedIn() &&
+        request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.leaderId;
     }
 
     // ─── resources ────────────────────────────────────────────
@@ -97,24 +100,30 @@ service cloud.firestore {
 
     // ─── notifications ────────────────────────────────────────
     // Chaque user lit uniquement les siennes.
+    // Create : autorisé pour les utilisateurs authentifiés (batch reject).
+    // Update : le propriétaire peut marquer comme lu (read: true).
     match /notifications/{notifId} {
       allow read: if isSignedIn() && (
         isAdmin() ||
         request.auth.uid == resource.data.userId
       );
-      allow write: if false;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() &&
+        request.auth.uid == resource.data.userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if false;
     }
 
-    // ─── joinRequests ─────────────────────────────────────────
-    // Read: the user who created the request, or the group leader.
-    // Write: via API routes only (firebase-admin bypass).
-    match /joinRequests/{requestId} {
-      allow read: if isSignedIn() && (
+    // ─── join-requests ─────────────────────────────────────────
+    // Read/Update: ONLY the group leader can read and update.
+    // Create: ANY authenticated user can create.
+    match /join-requests/{requestId} {
+      allow create: if isSignedIn();
+      allow read, update: if isSignedIn() && (
         isAdmin() ||
-        request.auth.uid == resource.data.userId ||
         request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.leaderId
       );
-      allow write: if false;
+      allow delete: if false; 
     }
 
     // ─── Default deny ─────────────────────────────────────────
