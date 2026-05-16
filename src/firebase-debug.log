@@ -1,0 +1,74 @@
+[debug] [2026-05-15T13:29:06.293Z] ----------------------------------------------------------------------
+[debug] [2026-05-15T13:29:06.296Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\omara\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only firestore:rules firestore:indexes
+[debug] [2026-05-15T13:29:06.296Z] CLI Version:   15.16.0
+[debug] [2026-05-15T13:29:06.296Z] Platform:      win32
+[debug] [2026-05-15T13:29:06.296Z] Node Version:  v24.15.0
+[debug] [2026-05-15T13:29:06.296Z] Time:          Fri May 15 2026 14:29:06 GMT+0100 (West Africa Time)
+[debug] [2026-05-15T13:29:06.296Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-15T13:29:08.282Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-15T13:29:08.282Z] > authorizing via signed-in user (omaraouf01@gmail.com)
+[debug] [2026-05-15T13:29:08.282Z] [iam] checking project twassel01 for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2026-05-15T13:29:08.283Z] Checked if tokens are valid: false, expires at: 1778824200970
+[debug] [2026-05-15T13:29:08.283Z] Checked if tokens are valid: false, expires at: 1778824200970
+[debug] [2026-05-15T13:29:08.283Z] > refreshing access token with scopes: []
+[debug] [2026-05-15T13:29:08.285Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-05-15T13:29:08.285Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-05-15T13:29:08.645Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-05-15T13:29:08.645Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-05-15T13:29:08.653Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/twassel01:testIamPermissions [none]
+[debug] [2026-05-15T13:29:08.653Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/twassel01:testIamPermissions  x-goog-user-project=twassel01
+[debug] [2026-05-15T13:29:08.653Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/twassel01:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2026-05-15T13:29:10.020Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/twassel01:testIamPermissions 200
+[debug] [2026-05-15T13:29:10.020Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/twassel01:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[info] 
+[info] === Deploying to 'twassel01'...
+[info] 
+[info] i  deploying firestore 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2026-05-15T13:29:10.023Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:10.023Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:10.023Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default) [none]
+[debug] [2026-05-15T13:29:10.369Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default) 200
+[debug] [2026-05-15T13:29:10.369Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default) {"name":"projects/twassel01/databases/(default)","uid":"f92bb40c-b99a-42e4-82d0-a035a52df472","createTime":"2026-04-30T22:16:53.564916Z","updateTime":"2026-04-30T22:16:53.564916Z","locationId":"eur3","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2026-05-15T12:29:10.333758Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"e","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IKuWv5Wzu5QDMJms9JbNlpQD"}
+[info] i  firestore: reading indexes from firestore.indexes.json... 
+[info] i  cloud.firestore: checking firestore.rules for compilation errors... 
+[debug] [2026-05-15T13:29:10.371Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:10.371Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:10.371Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/twassel01:test [none]
+[debug] [2026-05-15T13:29:10.371Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/twassel01:test [omitted]
+[debug] [2026-05-15T13:29:10.802Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/twassel01:test 200
+[debug] [2026-05-15T13:29:10.802Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/twassel01:test {}
+[info] +  cloud.firestore: rules file firestore.rules compiled successfully 
+[debug] [2026-05-15T13:29:10.803Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:10.803Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:10.803Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/twassel01/releases pageSize=10&pageToken=
+[debug] [2026-05-15T13:29:11.496Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/twassel01/releases 200
+[debug] [2026-05-15T13:29:11.497Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/twassel01/releases {"releases":[{"name":"projects/twassel01/releases/cloud.firestore","rulesetName":"projects/twassel01/rulesets/bc5eb7bd-0042-4e5c-95c0-0459da907cda","createTime":"2026-04-30T22:16:56.154462Z","updateTime":"2026-05-15T05:06:29.438598Z"}]}
+[debug] [2026-05-15T13:29:11.497Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:11.497Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:11.497Z] >>> [apiv2][query] GET https://firebaserules.googleapis.com/v1/projects/twassel01/rulesets/bc5eb7bd-0042-4e5c-95c0-0459da907cda [none]
+[debug] [2026-05-15T13:29:11.721Z] <<< [apiv2][status] GET https://firebaserules.googleapis.com/v1/projects/twassel01/rulesets/bc5eb7bd-0042-4e5c-95c0-0459da907cda 200
+[debug] [2026-05-15T13:29:11.722Z] <<< [apiv2][body] GET https://firebaserules.googleapis.com/v1/projects/twassel01/rulesets/bc5eb7bd-0042-4e5c-95c0-0459da907cda [omitted]
+[info] i  firestore: latest version of firestore.rules already up to date, skipping upload... 
+[info] i  firestore: deploying indexes... 
+[debug] [2026-05-15T13:29:11.723Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:11.723Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:11.723Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default)/collectionGroups/-/indexes [none]
+[debug] [2026-05-15T13:29:11.897Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default)/collectionGroups/-/indexes 200
+[debug] [2026-05-15T13:29:11.897Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default)/collectionGroups/-/indexes {"indexes":[{"name":"projects/twassel01/databases/(default)/collectionGroups/groups/indexes/CICAgJim14AK","queryScope":"COLLECTION","fields":[{"fieldPath":"isPublic","order":"ASCENDING"},{"fieldPath":"createdAt","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/groups/indexes/CICAgOjXh4EK","queryScope":"COLLECTION","fields":[{"fieldPath":"members","arrayConfig":"CONTAINS"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"updatedAt","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/resources/indexes/CICAgJj7z4EK","queryScope":"COLLECTION","fields":[{"fieldPath":"groupId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/groups/indexes/CICAgJjF9oIK","queryScope":"COLLECTION","fields":[{"fieldPath":"isPublic","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/notifications/indexes/CICAgJiUpoMK","queryScope":"COLLECTION","fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/join-requests/indexes/CICAgNi47oMK","queryScope":"COLLECTION","fields":[{"fieldPath":"groupId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/messages/indexes/CICAgJiH2JAK","queryScope":"COLLECTION","fields":[{"fieldPath":"groupId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}],"state":"READY","density":"SPARSE_ALL"},{"name":"projects/twassel01/databases/(default)/collectionGroups/messages/indexes/CICAgJiUsZIK","queryScope":"COLLECTION","fields":[{"fieldPath":"groupId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}],"state":"READY","density":"SPARSE_ALL"}]}
+[debug] [2026-05-15T13:29:11.897Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:11.897Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:11.897Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* [none]
+[debug] [2026-05-15T13:29:12.094Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* 200
+[debug] [2026-05-15T13:29:12.094Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* {"fields":[{"name":"projects/twassel01/databases/(default)/collectionGroups/__default__/fields/*","indexConfig":{"indexes":[{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"ASCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"DESCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","arrayConfig":"CONTAINS"}],"state":"READY"}]}}]}
+[debug] [2026-05-15T13:29:12.094Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:12.094Z] Checked if tokens are valid: true, expires at: 1778855347645
+[debug] [2026-05-15T13:29:12.094Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default) [none]
+[debug] [2026-05-15T13:29:12.186Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default) 200
+[debug] [2026-05-15T13:29:12.186Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/twassel01/databases/(default) {"name":"projects/twassel01/databases/(default)","uid":"f92bb40c-b99a-42e4-82d0-a035a52df472","createTime":"2026-04-30T22:16:53.564916Z","updateTime":"2026-04-30T22:16:53.564916Z","locationId":"eur3","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2026-05-15T12:29:12.151336Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"e","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IISLrpazu5QDMJms9JbNlpQD"}
+[info] i  firestore: The following indexes are defined in your project but are not present in your firestore indexes file:
+	(resources) -- (groupId,ASCENDING) (createdAt,DESCENDING)  -- Density:SPARSE_ALL 
+	(join-requests) -- (groupId,ASCENDING) (status,ASCENDING)  -- Density:SPARSE_ALL 
+	(messages) -- (groupId,ASCENDING) (createdAt,DESCENDING)  -- Density:SPARSE_ALL  

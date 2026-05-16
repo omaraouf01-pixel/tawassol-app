@@ -1,6 +1,7 @@
 import { groupsCol, joinRequestsCol } from "@/lib/collections";
 import { db, FieldValue } from "@/lib/firestore";
 import { withAuth, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
+import { notifyMany } from "@/lib/serverNotify";
 
 // PATCH /api/groups/[id]/join-requests/[reqId] — body: { action: "approve"|"reject" }
 export const PATCH = withAuth(async (req, { params }, { uid }) => {
@@ -32,8 +33,18 @@ export const PATCH = withAuth(async (req, { params }, { uid }) => {
       memberCount: FieldValue.increment(1),
       updatedAt: FieldValue.serverTimestamp(),
     });
-    
+
     await reqRef.update({ status: "approved" });
+
+    // New Member Alert — notify existing members (exclude the new joiner).
+    const recipients = (group.members || []).filter((m) => m && m !== reqData.userId);
+    notifyMany({
+      userIds: recipients,
+      type: "new_member",
+      title: "A new student joined our group!",
+      body: `${reqData.userName || "A new student"} just joined ${group.name || "the node"}. Say hi.`,
+      link: `/hub/chat/${params.id}`,
+    });
   } else {
     // Reject: update status
     await reqRef.update({ status: "rejected" });

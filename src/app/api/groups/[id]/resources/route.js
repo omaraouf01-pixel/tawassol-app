@@ -1,6 +1,7 @@
 import { groupsCol, resourcesCol, buildResourceDoc } from "@/lib/collections";
 import { listSnap } from "@/lib/firestore";
 import { withAuth, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
+import { notifyUser } from "@/lib/serverNotify";
 
 async function ensureMember(uid, user, groupId) {
   const gSnap = await groupsCol().doc(groupId).get();
@@ -55,5 +56,17 @@ export const POST = withAuth(async (req, { params }, { uid, user }) => {
       status,
     })
   );
+
+  // Review Alert — notify the group leader when a student uploads a pending file.
+  if (status === "pending" && ctx.group?.leaderId && ctx.group.leaderId !== uid) {
+    notifyUser({
+      userId: ctx.group.leaderId,
+      type: "review",
+      title: "New file to review",
+      body: `Please check the node — ${user?.fullName || "a student"} uploaded "${name}".`,
+      link: `/hub/chat/${params.id}`,
+    });
+  }
+
   return jsonOk({ id: ref.id, status }, 201);
 }, "RESOURCES_POST");

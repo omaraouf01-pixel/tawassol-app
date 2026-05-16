@@ -4,6 +4,7 @@ import { withAuth, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
 import { getUserByUid } from "@/lib/verifyAdmin";
 import { adminAuth } from "@/lib/firestore";
 import { NextResponse } from "next/server";
+import { notifyMany, extractMentionedUids } from "@/lib/serverNotify";
 
 async function ensureMember(uid, user, groupId) {
   const gSnap = await groupsCol().doc(groupId).get();
@@ -113,6 +114,22 @@ export async function POST(req, { params }) {
     const ref = await messagesCol().add(messageData);
 
     ctx.ref.update({ updatedAt: FieldValue.serverTimestamp() }).catch(() => { });
+
+    // Mentions — notify any group member tagged with @ in the message text.
+    if (text && Array.isArray(ctx.group.membersList) && moderationStatus === "approved") {
+      const mentionedUids = extractMentionedUids(text, ctx.group.membersList)
+        .filter((targetUid) => targetUid !== uid);
+      if (mentionedUids.length > 0) {
+        const senderName = userSnap?.fullName || "Someone";
+        notifyMany({
+          userIds: mentionedUids,
+          type: "mention",
+          title: "Someone mentioned you in a message.",
+          body: `${senderName}: ${text.slice(0, 140)}${text.length > 140 ? "…" : ""}`,
+          link: `/hub/chat/${params.id}`,
+        });
+      }
+    }
 
     const fresh = await ref.get();
     return jsonOk(snapToObj(fresh), 201);

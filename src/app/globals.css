@@ -1,100 +1,138 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Tajawal:wght@400;500;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* TWASSEL - PREMIUM EDITORIAL UI CONFIGURATION
-  -------------------------------------------
-  الهوية البصرية: تصميم تحريري يجمع بين دقة الأكاديميا وعفوية الإبداع البشري.
-*/
+/* ─────────────────────────────────────────────
+   TWASSEL — Cozy Theme (Light + Dark)
+   Colors defined as raw RGB triplets so Tailwind
+   utilities can apply opacity (e.g. bg-paper/60).
+───────────────────────────────────────────── */
 
 :root {
-  --background: #050505;
-  --foreground: #F9FAFB;
-  --accent-indigo: #6366F1;
-  --accent-fuchsia: #D946EF;
-  --surface-glass: rgba(255, 255, 255, 0.03);
-  --border-glass: rgba(255, 255, 255, 0.08);
+  --c-cream:     250 248 244;  /* #FAF8F4 — page background */
+  --c-paper:     255 255 255;  /* cards / surfaces */
+  --c-sand:      232 227 218;  /* soft borders */
+  --c-ink:       28  25  23;   /* primary text */
+  --c-ink-muted: 68  64  60;
+  --c-ink-faint: 120 113 108;
+  --c-accent:    124 131 242;  /* #7c83f2 — Twassel signature violet */
+  --c-accent-soft: 238 240 255;
+  --c-shadow:    28  25  23;
+}
+
+.dark {
+  --c-cream:     22  20  18;   /* warm near-black */
+  --c-paper:     32  29  26;   /* cards a touch lighter */
+  --c-sand:      55  50  45;   /* dim borders */
+  --c-ink:       245 240 232;  /* warm white */
+  --c-ink-muted: 200 192 180;
+  --c-ink-faint: 145 136 122;
+  --c-accent:    142 149 247;  /* #8E95F7 — softened #7c83f2 for dark mode */
+  --c-accent-soft: 40 40 60;
+  --c-shadow:    0   0   0;
 }
 
 @layer base {
-  body {
-    @apply bg-[#050505] text-[#F9FAFB] antialiased;
+  html, body {
+    @apply bg-cream text-ink antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     scroll-behavior: smooth;
-    overflow-x: hidden;
   }
 
-  /* تحسين عرض الخطوط لتبدو أكثر حدة ورقياً */
-  h1,
-  h2,
-  h3,
-  h4 {
-    @apply tracking-tighter leading-tight;
+  /* Arabic — switch the body font stack so headings and copy both use the
+     dedicated Arabic-shaping faces. Tajawal first, IBM Plex Sans Arabic as
+     a clean fallback. */
+  html[lang="ar"], html[lang="ar"] body {
+    font-family: 'Tajawal', 'IBM Plex Sans Arabic', system-ui, sans-serif;
   }
 
-  p {
-    @apply leading-relaxed;
+  /* Mirror directional icons (back arrows, send buttons, chevrons) under RTL.
+     Opt in with `data-flip-rtl` on the SVG/icon element. */
+  html[dir="rtl"] [data-flip-rtl] {
+    transform: scaleX(-1);
   }
+
+  h1, h2, h3, h4 { @apply tracking-tight leading-tight; }
+  p { @apply leading-relaxed; }
 }
 
 @layer components {
-
-  /* فئة العناوين التحريرية - تضفي طابع "المجلة الفاخرة" */
-  .font-serif {
-    font-family: 'Playfair Display', Georgia, serif;
+  /* Cozy card — warm paper feel */
+  .cozy-card {
+    @apply bg-paper border border-sand/70 rounded-3xl shadow-soft transition-all duration-300;
+  }
+  .cozy-card:hover {
+    @apply shadow-warm -translate-y-0.5;
   }
 
-  /* تأثير التوهج الأرجواني الخافت (Ambient Glow) */
-  .text-glow {
-    text-shadow: 0 0 30px rgba(99, 102, 241, 0.2);
+  /* Primary button — ink color, fills with accent on hover */
+  .btn-ink {
+    @apply inline-flex items-center gap-2 px-6 py-3 rounded-xl
+           bg-ink text-cream font-semibold text-sm
+           shadow-soft transition-all duration-200
+           hover:bg-accent hover:-translate-y-0.5;
   }
 
-  /* نظام الألواح الزجاجية (Glassmorphism) */
-  .glass-panel {
-    @apply bg-white/[0.02] border border-white/[0.05] backdrop-blur-xl shadow-2xl;
+  /* Secondary button — paper with sand border */
+  .btn-paper {
+    @apply inline-flex items-center gap-2 px-5 py-3 rounded-xl
+           bg-paper text-ink border border-sand
+           font-semibold text-sm transition-all duration-200
+           hover:border-accent hover:text-accent;
   }
 
-  /* الأزرار بنمط Twassel: دقة في التصميم واستجابة إنسانية */
-  .btn-premium {
-    @apply relative overflow-hidden px-8 py-3 rounded-full transition-all duration-500 border border-white/10 hover:border-indigo-500/50 hover:shadow-[0_0_20px_rgba(99, 102, 241, 0.15)];
+  /* Small badge */
+  .badge-soft {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full
+           bg-accent-soft text-accent text-[10px] font-bold uppercase tracking-[0.12em]
+           border border-accent/15;
   }
 
-  /* تأثير الأنيميشن عند التركيز على الحقول (HCI Principle) */
-  .input-editorial {
-    @apply bg-transparent border-b border-white/10 py-3 outline-none focus:border-indigo-500 transition-all duration-700;
-  }
+  /* Editorial serif font */
+  .font-display { font-family: 'Lora', Georgia, serif; }
 }
 
-/* تخصيص شريط التمرير (Scrollbar) ليناسب الفخامة */
-::-webkit-scrollbar {
-  width: 4px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+/* Scrollbar — narrow and unobtrusive */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 20px;
+  background: rgb(var(--c-sand));
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-ink-faint)); }
+
+/* ─────────────────────────────────────────────
+   Horizontal Shelves — hidden scrollbar utility
+   Used on tracks like <NodeShelf> so they look
+   clean on desktop and feel native on mobile.
+───────────────────────────────────────────── */
+.hide-scrollbar {
+  -ms-overflow-style: none;   /* IE / old Edge */
+  scrollbar-width: none;      /* Firefox */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;              /* Chrome, Safari, new Edge */
+  width: 0;
+  height: 0;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.3);
+/* Smooth, momentum-style horizontal scroll for shelves */
+.shelf-track {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 0.5rem;
 }
 
-/* طبقة Noise Texture: اللمسة الإنسانية التي تمنع الجمود الرقمي */
-body::before {
+/* Subtle paper grain — gives the cozy/handmade feel */
+body::after {
   content: "";
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  opacity: 0.015;
+  inset: 0;
   pointer-events: none;
-  z-index: 100;
+  z-index: 1;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+.dark body::after { opacity: 0.04; }

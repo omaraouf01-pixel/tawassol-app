@@ -18,14 +18,22 @@ export async function POST(req) {
       return NextResponse.json({ error: "لم يتم اختيار ملف" }, { status: 400 });
     }
 
-    // تحويل الملف لـ Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // الرفع لـ Cloudinary
+    // ملفات PDF/المستندات تُرفع كـ raw لتجاوز قيود Cloudinary الأمنية
+    // على resource_type=image (الذي يُصنَّف فيه PDF افتراضياً عند auto)
+    const isImage = file.type?.startsWith("image/");
+    const resourceType = isImage ? "image" : "raw";
+
     const result = await new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { folder, resource_type: "auto" },
+        {
+          folder,
+          resource_type: resourceType,
+          use_filename: true,
+          unique_filename: true,
+        },
         (error, result) => {
           if (error) reject(error);
           else resolve(result);
@@ -34,8 +42,11 @@ export async function POST(req) {
       uploadStream.end(buffer);
     });
 
-    // إرجاع الرابط
-    return NextResponse.json({ url: result.secure_url });
+    return NextResponse.json({
+      url: result.secure_url,
+      publicId: result.public_id,
+      resourceType,
+    });
 
   } catch (error) {
     console.error("Upload API Error:", error);

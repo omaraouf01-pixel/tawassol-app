@@ -1,7 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import { NextResponse } from "next/server";
-import { usersCol, buildUserDoc } from "@/lib/collections";
-import { adminAuth } from "@/lib/firestore";
+import { db, adminAuth } from "@/lib/firebaseAdmin";
+import admin from "firebase-admin";
 
 cloudinary.config({
   cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
@@ -14,23 +14,15 @@ const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 /**
  * POST /api/register
  *
- * ⚡ Inscription 100% côté serveur — ne touche PAS à la session du navigateur.
- *
- * Avantage : un admin peut créer plusieurs comptes étudiants depuis SON PROPRE
- * navigateur sans être déconnecté (contrairement à createUserWithEmailAndPassword
- * qui se connecte automatiquement avec le nouveau compte).
- *
- * Étapes :
- *   1. Validation des champs + fichier
- *   2. Vérification d'unicité (matricule, email)
- *   3. Upload de la carte d'étudiant sur Cloudinary
- *   4. Création silencieuse du compte Firebase Auth (admin.auth().createUser)
- *   5. Création du document user dans Firestore (doc ID = uid Firebase)
- *
- * Le client envoie un FormData (pas de token nécessaire — endpoint public).
+ * تسجيل المستخدم 100% من جهة السيرفر باستخدام Firebase Admin SDK.
+ * 1. تحقق من الحقول والملف
+ * 2. تحقق من تفرّد (matricule, email)
+ * 3. رفع بطاقة الطالب إلى Cloudinary
+ * 4. إنشاء حساب Firebase Auth (admin)
+ * 5. إنشاء مستند المستخدم في Firestore
  */
 export async function POST(req) {
-  let createdUid = null; // pour rollback en cas d'erreur
+  let createdUid = null; // للـ rollback عند الفشل
 
   try {
     const formData = await req.formData();
@@ -41,46 +33,49 @@ export async function POST(req) {
     const password = (formData.get("password") || "").toString();
     const studentCard = formData.get("studentCard");
 
-    // ── 1. Validation ──
+    // ── 1. التحقق من الحقول ──
     if (!matricule || !fullName || !email || !password) {
       return NextResponse.json(
-        { error: "Champs obligatoires manquants (matricule, fullName, email, password)." },
+        { error: "Missing required fields (matricule, fullName, email, password)." },
         { status: 400 }
       );
     }
     if (password.length < 6) {
       return NextResponse.json(
-        { error: "Le mot de passe doit contenir au moins 6 caractères." },
+        { error: "Password must be at least 6 characters." },
         { status: 400 }
       );
     }
     if (!studentCard || typeof studentCard === "string") {
       return NextResponse.json(
-        { error: "Carte d'étudiant manquante." },
+        { error: "Student ID card is required." },
         { status: 400 }
       );
     }
     if (studentCard.size > MAX_SIZE) {
       return NextResponse.json(
-        { error: "Fichier trop volumineux (max 10 MB)." },
+        { error: "File too large (max 10 MB)." },
         { status: 413 }
       );
     }
 
-    // ── 2. Vérifier l'unicité (matricule, email dans Firestore) ──
-    const col = usersCol();
+    // ── 2. تحقق التفرّد عبر Admin SDK ──
+    const usersRef = db.collection("users");
+    const matriculeLower = matricule.toLowerCase();
+
     const [existsMatricule, existsEmail] = await Promise.all([
-      col.where("matricule", "==", matricule).limit(1).get(),
-      col.where("email", "==", email).limit(1).get(),
+      usersRef.where("matricule", "==", matriculeLower).limit(1).get(),
+      usersRef.where("email", "==", email).limit(1).get(),
     ]);
+
     if (!existsMatricule.empty) {
-      return NextResponse.json({ error: "Ce matricule est déjà utilisé." }, { status: 409 });
+      return NextResponse.json({ error: "This matricule is already in use." }, { status: 409 });
     }
     if (!existsEmail.empty) {
-      return NextResponse.json({ error: "Cet email est déjà utilisé." }, { status: 409 });
+      return NextResponse.json({ error: "This email is already in use." }, { status: 409 });
     }
 
-    // ── 3. Upload Cloudinary ──
+    // ── 3. رفع البطاقة إلى Cloudinary ──
     const bytes = await studentCard.arrayBuffer();
     const buffer = Buffer.from(bytes);
     const uploadResult = await new Promise((resolve, reject) => {
@@ -93,9 +88,7 @@ export async function POST(req) {
     });
     const studentCardUrl = uploadResult.secure_url;
 
-    // ── 4. Création silencieuse du compte Firebase Auth ──
-    //    Ceci se passe entièrement sur le serveur → la session du navigateur
-    //    actuel (admin) n'est PAS modifiée.
+    // ── 4. إنشاء حساب Firebase Auth بصمت من السيرفر ──
     const userRecord = await adminAuth.createUser({
       email,
       password,
@@ -105,32 +98,40 @@ export async function POST(req) {
     });
     createdUid = userRecord.uid;
 
-    // ── 5. Création du user document dans Firestore (doc ID = uid) ──
-    await col.doc(createdUid).set(
-      buildUserDoc({
-        uid: createdUid,
-        fullName,
-        matricule,
-        email,
-        studentCardUrl,
-        role: "student",
-        status: "pending",
-        groups: [],
-        onboarded: false,
-      })
-    );
-
-    return NextResponse.json({
-      ok: true,
+    // ── 5. إنشاء مستند المستخدم في Firestore (Admin SDK + FieldValue الإداري) ──
+    const FieldValue = admin.firestore.FieldValue;
+    await usersRef.doc(createdUid).set({
       uid: createdUid,
-      message: "Inscription enregistrée. En attente de validation par un administrateur.",
+      email,
+      fullName,
+      matricule: matriculeLower, // نخزّنه بحالة موحّدة لضمان دقة البحث لاحقاً
       studentCardUrl,
-    }, { status: 201 });
+      role: "student",
+      status: "pending",
+      groups: [],
+      onboarded: false,
+      university: "University of Oran 1",
+      department: null,
+      major: null,
+      bio: "",
+      avatarUrl: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
+    return NextResponse.json(
+      {
+        ok: true,
+        uid: createdUid,
+        message: "Registration recorded. Awaiting admin approval.",
+        studentCardUrl,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("[REGISTER API ERROR]", error);
 
-    // Rollback : si Auth créé mais Firestore échoué → supprimer le compte Auth
+    // Rollback في حال إنشاء Auth ثم فشل Firestore
     if (createdUid) {
       try {
         await adminAuth.deleteUser(createdUid);
@@ -140,19 +141,18 @@ export async function POST(req) {
       }
     }
 
-    // Mapping des erreurs Firebase Auth
     if (error.code === "auth/email-already-exists") {
-      return NextResponse.json({ error: "Cet email est déjà utilisé." }, { status: 409 });
+      return NextResponse.json({ error: "This email is already in use." }, { status: 409 });
     }
     if (error.code === "auth/invalid-email") {
-      return NextResponse.json({ error: "Format d'email invalide." }, { status: 400 });
+      return NextResponse.json({ error: "Invalid email format." }, { status: 400 });
     }
     if (error.code === "auth/invalid-password") {
-      return NextResponse.json({ error: "Mot de passe trop faible (min 6 caractères)." }, { status: 400 });
+      return NextResponse.json({ error: "Password too weak (min 6 chars)." }, { status: 400 });
     }
 
     return NextResponse.json(
-      { error: error.message || "Erreur serveur lors de l'inscription." },
+      { error: error.message || "Server error during registration." },
       { status: 500 }
     );
   }

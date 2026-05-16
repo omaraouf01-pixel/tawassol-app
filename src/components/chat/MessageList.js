@@ -1,146 +1,197 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Download, FileText, ImageIcon, Reply,
-  ShieldAlert, Clock
+  ShieldCheck,
+  Trash2,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
+import MessageAttachment from "@/components/MessageAttachment";
+import { useLanguage } from "@/lib/useLanguage";
 
-export default function MessageList({ messages, currentUser, onReaction, setReplyTo }) {
+// MessageList — live message feed
+//  • Smart auto-scroll: sticks to bottom on new messages, doesn't interrupt scroll-up.
+//  • Optimistic UI: optimistic messages render dimmed with a "sending" indicator.
+//  • Bubble corners use logical Tailwind utilities (`rounded-ss/se/es/ee`) so the
+//    tail flips automatically under RTL.
+
+function formatTime(createdAt, locale) {
+  if (!createdAt) return "...";
+  const date =
+    createdAt instanceof Date
+      ? createdAt
+      : createdAt.seconds
+      ? new Date(createdAt.seconds * 1000)
+      : new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "...";
+  return date.toLocaleTimeString(locale || "en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+export default function MessageList({
+  messages = [],
+  currentUser,
+  groupLeaderId,
+  onDeleteMessage,
+}) {
+  const { t, lang } = useLanguage();
   const scrollRef = useRef(null);
+  const [stickToBottom, setStickToBottom] = useState(true);
 
-  // التمرير التلقائي لأسفل عند وصول رسائل جديدة
+  const localeForTime =
+    lang === "ar" ? "ar-DZ" : lang === "fr" ? "fr-FR" : "en-US";
+
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setStickToBottom(distance < 120);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (stickToBottom) {
+      el.scrollTop = el.scrollHeight;
     }
-  }, [messages]);
-
-  // --- دالة التحميل المضمونة عبر الوكيل (Fix 401 Error) ---
-  const handleDownload = (fileUrl, fileName) => {
-    if (!fileUrl) return;
-
-    // توجيه الطلب إلى الـ API الداخلي الخاص بنا لتخطي حماية Cloudinary
-    const proxyUrl = `/api/download?url=${encodeURIComponent(fileUrl)}&name=${encodeURIComponent(fileName || 'resource')}`;
-
-    const link = document.createElement('a');
-    link.href = proxyUrl;
-    // السيرفر سيرسل ترويسة attachment لإجبار التحميل
-    link.setAttribute('download', fileName || 'resource');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  };
+  }, [messages, stickToBottom]);
 
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto p-6 lg:p-10 space-y-8 custom-scrollbar bg-[#050505]"
+      className="h-full overflow-y-auto hide-scrollbar space-y-6 pb-10 px-4"
     >
+      {messages.length === 0 && (
+        <p className="text-center text-ink-faint italic font-display py-12">
+          {t("chat.noMessages")}
+        </p>
+      )}
       <AnimatePresence initial={false}>
         {messages.map((m, idx) => {
-          const isMe = m.uid === currentUser?.uid;
-          const isPending = m.moderationStatus === "pending";
+          const isSystem = m.isSystem || m.role === "system";
+          const isMe = !isSystem && m.uid === currentUser?.uid;
+          const isLeader = m.uid === groupLeaderId;
+          const isAdmin = m.role === "admin";
+          const isOptimistic = !!m._optimistic;
+          const isFailed = !!m._failed;
+          const canDelete =
+            !isOptimistic &&
+            !isSystem &&
+            (isMe ||
+              currentUser?.uid === groupLeaderId ||
+              currentUser?.role === "admin");
 
+          // System message: centered accent pill
+          if (isSystem) {
+            return (
+              <motion.div
+                key={m.id || idx}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex justify-center w-full"
+              >
+                <div className="px-4 py-1.5 bg-accent-soft border border-accent/20 rounded-full text-[10px] italic font-serif text-accent flex items-center gap-2">
+                  <ShieldCheck size={11} />
+                  <span className="tracking-wide">{m.content}</span>
+                </div>
+              </motion.div>
+            );
+          }
+
+          // NOTE: `justify-end` and `items-end` are direction-aware in flex layouts.
+          // Under RTL the visual end is the LEFT edge, so own messages naturally
+          // sit on the left in Arabic and on the right in English/French.
           return (
             <motion.div
               key={m.id || idx}
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className={`flex flex-col ${isMe ? "items-end" : "items-start"} w-full group`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: isOptimistic ? 0.7 : 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className={`flex ${isMe ? "justify-end" : "justify-start"} w-full group`}
             >
-              {/* Sender Name */}
-              {!isMe && (
-                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-600 mb-2 ml-4">
-                  {m.authorName} • Scholar
-                </span>
-              )}
-
-              <div className={`flex items-end gap-3 max-w-[85%] sm:max-w-[70%] ${isMe ? "flex-row-reverse" : "flex-row"}`}>
-
-                {/* Avatar */}
-                <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/5 flex items-center justify-center shrink-0 mb-1 shadow-sm">
-                  <span className="text-[10px] font-serif italic font-black text-slate-500 uppercase">
-                    {m.authorName?.[0] || "S"}
-                  </span>
-                </div>
-
-                {/* Message Content */}
-                <div className="flex flex-col gap-2">
-                  <div className={`relative p-4 rounded-2xl border transition-all ${isMe
-                      ? "bg-white text-black border-white shadow-glow"
-                      : "bg-[#0A0A0B] text-slate-200 border-white/5"
-                    } ${isPending ? "opacity-50 border-amber-500/30" : ""}`}>
-
-                    {/* Reply Preview */}
-                    {m.replyTo && (
-                      <div className={`mb-3 p-3 rounded-xl text-[10px] border-l-2 ${isMe ? "bg-black/5 border-black/20 text-black/60" : "bg-white/5 border-brand-indigo/40 text-slate-400"
-                        }`}>
-                        <p className="font-black uppercase tracking-widest opacity-80 mb-1">{m.replyTo.userName}</p>
-                        <p className="italic truncate line-clamp-1">{m.replyTo.text}</p>
-                      </div>
-                    )}
-
-                    {/* Text Message */}
-                    {m.text && <p className="text-[13px] leading-relaxed font-medium selection:bg-brand-indigo/30">{m.text}</p>}
-
-                    {/* File / Image Attachment */}
-                    {m.file && (
-                      <div className={`mt-3 overflow-hidden rounded-xl border ${isMe ? "border-black/10 bg-black/5" : "border-white/5 bg-white/[0.02]"}`}>
-                        {m.file.type?.startsWith("image/") ? (
-                          <img
-                            src={m.file.url}
-                            alt="Node Asset"
-                            className="w-full max-h-64 object-cover hover:scale-[1.02] transition-transform cursor-pointer"
-                            onClick={() => window.open(m.file.url, '_blank')}
-                          />
-                        ) : (
-                          <div className="p-4 flex items-center gap-4">
-                            <div className="p-3 bg-brand-indigo/10 rounded-xl text-brand-indigo shadow-glow">
-                              <FileText size={20} />
-                            </div>
-                            <div className="flex-1 min-w-0 text-left">
-                              <p className="text-[11px] font-bold truncate">{m.file.name}</p>
-                              <p className="text-[8px] opacity-50 uppercase tracking-tighter mt-1 font-black">Academic Resource</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* الزر المحدث للتحميل الآمن */}
-                        <button
-                          onClick={() => handleDownload(m.file.url, m.file.name)}
-                          className={`w-full py-3 text-[9px] font-black uppercase tracking-[0.2em] border-t transition-all cursor-pointer flex items-center justify-center gap-2 ${isMe
-                              ? "border-black/5 hover:bg-black/10 text-black"
-                              : "border-white/5 hover:bg-white/10 text-brand-indigo"
-                            }`}
-                        >
-                          <Download size={12} /> Sync Asset
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Moderation Status Icon */}
-                    {isPending && (
-                      <div className="absolute -top-3 -right-3 bg-[#050505] border border-amber-500/40 text-amber-500 p-1.5 rounded-full shadow-glow">
-                        <ShieldAlert size={14} className="animate-pulse" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Metadata & Actions */}
-                  <div className={`flex items-center gap-3 px-2 ${isMe ? "justify-end" : "justify-start"}`}>
-                    <span className="text-[8px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1">
-                      <Clock size={8} />
-                      {m.createdAt?.toDate ? new Date(m.createdAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Syncing...'}
+              <div
+                className={`flex flex-col max-w-[85%] md:max-w-[70%] ${
+                  isMe ? "items-end" : "items-start"
+                }`}
+              >
+                {/* Sender name + badges + time */}
+                {!m._grouped && (
+                  <div className="flex items-center gap-2 mb-1.5 px-2">
+                    <span className="text-[11px] italic font-serif text-ink dark:text-white/90 tracking-wide">
+                      {m.senderName || t("chat.scholarFallback")}
                     </span>
+                    {(isLeader || isAdmin) && (
+                      <span className="flex items-center gap-0.5 text-[8px] font-black text-accent bg-accent/5 px-2 py-0.5 rounded-md border border-accent/15">
+                        <ShieldCheck size={8} />
+                        {isAdmin ? t("roles.adminBadge") : t("roles.overseerBadge")}
+                      </span>
+                    )}
+                    <span className="text-[10px] italic font-serif text-ink-faint">
+                      · {formatTime(m.createdAt, localeForTime)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="relative flex items-center gap-2">
+                  {canDelete && onDeleteMessage && (
                     <button
-                      onClick={() => setReplyTo(m)}
-                      className="p-1 text-slate-700 hover:text-brand-indigo transition-colors cursor-pointer border-none bg-transparent"
-                      title="Reply to protocol"
+                      onClick={() => onDeleteMessage(m.id)}
+                      aria-label={t("chat.deleteMessage")}
+                      title={t("chat.deleteMessage")}
+                      className={`p-2 text-rose-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-full ${
+                        isMe ? "order-first" : "order-last"
+                      }`}
                     >
-                      <Reply size={12} />
+                      <Trash2 size={14} />
                     </button>
+                  )}
+
+                  <div
+                    className={`px-5 py-3 rounded-[1.5rem] text-sm leading-relaxed transition-all
+                      ${
+                        isMe
+                          ? "bg-accent text-white rounded-se-none"
+                          : "bg-paper dark:bg-white/5 border border-sand/20 dark:border-white/10 rounded-ss-none text-ink dark:text-white"
+                      }
+                      ${isFailed ? "ring-2 ring-rose-400/60" : ""}
+                    `}
+                  >
+                    {m.content}
+
+                    {(m.fileUrl || m.imageUrl) && (
+                      <div className="mt-3">
+                        <MessageAttachment
+                          imageUrl={m.imageUrl}
+                          fileUrl={m.fileUrl}
+                          fileName={m.fileName}
+                          fileType={m.fileType}
+                          fileSize={m.fileSize}
+                          moderationStatus={m.moderationStatus ?? "approved"}
+                        />
+                      </div>
+                    )}
+
+                    {isOptimistic && !isFailed && (
+                      <span className="inline-flex items-center gap-1 mt-2 text-[9px] italic font-serif opacity-80">
+                        <Loader2 size={10} className="animate-spin" />
+                        {t("chat.sending")}
+                      </span>
+                    )}
+                    {isFailed && (
+                      <span className="inline-flex items-center gap-1 mt-2 text-[9px] italic font-serif text-rose-200">
+                        <AlertCircle size={10} /> {t("chat.failed")}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -148,13 +199,6 @@ export default function MessageList({ messages, currentUser, onReaction, setRepl
           );
         })}
       </AnimatePresence>
-
-      <style dangerouslySetInnerHTML={{
-        __html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.03); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.2); }
-      `}} />
     </div>
   );
 }

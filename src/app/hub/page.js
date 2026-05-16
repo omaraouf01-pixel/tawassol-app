@@ -1,315 +1,518 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  Send, Sparkles, PenTool, Users, Compass,
-  Paperclip, FileText, X, Loader2,
-  Heart, MessageCircle, MoreHorizontal
+  Send, Heart, MessageSquare,
+  MoreHorizontal, Loader2, Search,
+  Paperclip, Download, Eye, X
 } from "lucide-react";
 
-// ─── الاستيرادات الأساسية ───
-import { auth, firestore } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection, query, orderBy, onSnapshot, addDoc,
-  serverTimestamp, doc, getDoc, updateDoc, arrayUnion, arrayRemove, increment, where
-} from "firebase/firestore";
-import { COL } from "@/lib/collections";
-import { useFileUpload } from "@/lib/useFileUpload";
-
-// ─── المكونات الخارجية ───
+// ─── Core Components ───
 import Sidebar from "@/components/Sidebar";
-import TsswalLogo from "@/components/TsswalLogo";
-import ActiveNodesSidebar from "@/components/chat/ActiveNodesSidebar";
+import NotificationCenter from "@/components/NotificationCenter";
 
-/**
- * مكون فرعي لعرض الردود الأكاديمية (التعليقات)
- */
-function PostComments({ postId }) {
-  const [replies, setReplies] = useState([]);
+// ─── Firebase & Auth Logic ───
+import { useAuth } from "@/lib/useAuth";
+import { firestore } from "@/lib/firebase";
+import { useLanguage } from "@/lib/useLanguage";
+import {
+  collection, addDoc, onSnapshot, query, orderBy, where,
+  serverTimestamp, limit, updateDoc, doc, increment, getDoc
+} from "firebase/firestore";
+
+// ─── File Link Helpers (Cloudinary proxy) ───
+import { buildViewUrl, buildDownloadUrl, isViewableInBrowser } from "@/lib/fileLinks";
+import { api } from "@/lib/apiClient";
+
+const PostAvatar = ({ authorId, fallbackName }) => {
+  const [avatar, setAvatar] = useState(null);
 
   useEffect(() => {
-    const q = query(collection(firestore, COL.POSTS, postId, "replies"), orderBy("createdAt", "asc"));
-    const unsub = onSnapshot(q, (snap) => {
-      setReplies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return unsub;
-  }, [postId]);
+    if (!authorId) return;
+    const fetchAvatar = async () => {
+      try {
+        const userDoc = await getDoc(doc(firestore, "users", authorId));
+        if (userDoc.exists()) setAvatar(userDoc.data().avatarUrl);
+      } catch (e) { console.error("Avatar fetch error:", e); }
+    };
+    fetchAvatar();
+  }, [authorId]);
 
   return (
-    <div className="mt-6 space-y-4 px-4 border-l border-white/5 ml-4 text-left">
-      {replies.map((reply) => (
-        <div key={reply.id} className="animate-in fade-in slide-in-from-left-2 duration-500">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[9px] font-black text-brand-indigo uppercase tracking-widest">
-              {reply.authorName}
-            </span>
+    <div className="w-12 h-12 rounded-xl bg-cream dark:bg-slate-800 flex items-center justify-center text-accent font-display font-bold italic border border-sand dark:border-white/10 shadow-inner overflow-hidden shrink-0">
+      {avatar ? (
+        <img src={avatar} className="w-full h-full object-cover" alt="Author" />
+      ) : (
+        <span className="text-lg uppercase">{fallbackName ? fallbackName[0] : "?"}</span>
+      )}
+    </div>
+  );
+};
+
+const CommentsThread = ({
+  postId, loading, comments, draft, onDraftChange, onSubmit, submitting, currentUser, t,
+}) => {
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
+
+  return (
+    <div className="mt-6 pt-6 border-t border-sand dark:border-white/5">
+      {/* Comments list */}
+      <div className="space-y-4 mb-5">
+        {loading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="animate-spin text-accent" size={18} />
           </div>
-          <p className="text-[12px] text-slate-400 font-serif italic leading-relaxed">{reply.text}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export default function HubPage() {
-  const router = useRouter();
-  const { upload, uploading } = useFileUpload();
-
-  const [currentUser, setCurrentUser] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [userNodes, setUserNodes] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingNodes, setLoadingNodes] = useState(true);
-
-  // حالات النشر (Composer)
-  const [postText, setPostText] = useState("");
-  const [attachedFile, setAttachedFile] = useState(null);
-  const [isBroadcasting, setIsBroadcasting] = useState(false);
-
-  // حالات التعليق
-  const [activeCommentId, setActiveCommentId] = useState(null);
-  const [commentText, setCommentText] = useState("");
-
-  const fileInputRef = useRef(null);
-
-  // 1. التحقق من الهوية (Identity Sync)
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (u) {
-        const userSnap = await getDoc(doc(firestore, COL.USERS, u.uid));
-        if (userSnap.exists() && userSnap.data().status === "active") {
-          setCurrentUser({ id: u.uid, uid: u.uid, ...userSnap.data() });
-          setLoading(false);
-        } else {
-          router.push("/pending");
-        }
-      } else {
-        router.push("/auth");
-      }
-    });
-    return unsub;
-  }, [router]);
-
-  // 2. مزامنة البث العام (Broadcast Stream)
-  useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(firestore, COL.POSTS), orderBy("createdAt", "desc"));
-    const unsubPosts = onSnapshot(q, (snap) => {
-      setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return () => unsubPosts();
-  }, [currentUser]);
-
-  // 3. مزامنة العقد النشطة (Active Nodes Sync)
-  useEffect(() => {
-    const currentId = currentUser?.uid || currentUser?.id;
-    if (!currentId) return;
-
-    const q = query(
-      collection(firestore, COL.GROUPS),
-      where("members", "array-contains", currentId) // ✅ التصحيح هنا
-    );
-
-    const unsubNodes = onSnapshot(q,
-      (snap) => {
-        setUserNodes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setLoadingNodes(false);
-      },
-      (error) => {
-        console.error("Nodes Sync Error:", error);
-        setLoadingNodes(false);
-      }
-    );
-
-    return () => unsubNodes();
-  }, [currentUser]);
-
-  // 4. منطق الإعجاب
-  const handleLike = async (postId, likesArray) => {
-    const postRef = doc(firestore, COL.POSTS, postId);
-    const isLiked = likesArray?.includes(currentUser.id);
-    await updateDoc(postRef, {
-      likes: isLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id)
-    });
-  };
-
-  // 5. إرسال رد أكاديمي
-  const handleSendComment = async (postId) => {
-    if (!commentText.trim()) return;
-    try {
-      await addDoc(collection(firestore, COL.POSTS, postId, "replies"), {
-        uid: currentUser.id,
-        authorName: currentUser.fullName,
-        text: commentText,
-        createdAt: serverTimestamp()
-      });
-      await updateDoc(doc(firestore, COL.POSTS, postId), { repliesCount: increment(1) });
-      setCommentText("");
-    } catch (e) { console.error(e); }
-  };
-
-  // 6. بث منشور جديد
-  const handleBroadcast = async () => {
-    if ((!postText.trim() && !attachedFile) || isBroadcasting) return;
-    setIsBroadcasting(true);
-    try {
-      let fileData = null;
-      if (attachedFile) {
-        const uploadResult = await upload(attachedFile, "tawassol/posts");
-        fileData = { url: uploadResult.url, name: attachedFile.name, type: attachedFile.type };
-      }
-      await addDoc(collection(firestore, COL.POSTS), {
-        uid: currentUser.id,
-        authorName: currentUser.fullName,
-        authorPic: currentUser.profilePicUrl || currentUser.avatarUrl || "",
-        major: currentUser.major || currentUser.department || "",
-        text: postText,
-        file: fileData,
-        likes: [],
-        repliesCount: 0,
-        createdAt: serverTimestamp(),
-      });
-      setPostText("");
-      setAttachedFile(null);
-    } catch (e) { console.error(e); } finally { setIsBroadcasting(false); }
-  };
-
-  if (loading) return (
-    <div className="min-h-screen bg-[#050505] flex items-center justify-center">
-      <TsswalLogo size={40} className="animate-pulse" />
-    </div>
-  );
-
-  return (
-    <div dir="ltr" className="min-h-screen bg-[#050505] text-[#F9FAFB] font-sans selection:bg-brand-indigo/30 relative flex overflow-hidden">
-
-      <Sidebar currentUser={currentUser} />
-
-      <main className="flex-1 lg:ml-[280px] px-6 py-10 lg:px-16 flex flex-col xl:flex-row justify-between relative z-10 overflow-y-auto custom-scrollbar h-screen text-left">
-
-        <div className="flex-1 max-w-[680px] pb-32">
-          <header className="mb-10">
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-              <h1 className="text-[38px] xl:text-[48px] font-serif font-black italic tracking-tighter leading-none text-white">The Hub.</h1>
-              <div className="flex items-center gap-3 mt-3">
-                <div className="h-[1px] w-6 bg-brand-indigo/40" />
-                <p className="text-[8px] font-bold text-slate-600 uppercase tracking-[0.4em]">Central Node: {currentUser?.university}</p>
+        ) : comments.length === 0 ? (
+          <p className="text-center text-ink-faint italic font-display text-sm py-2">
+            {t("hub.noComments")}
+          </p>
+        ) : (
+          comments.map((c) => (
+            <div key={c.id} className="flex gap-3">
+              <div className="w-9 h-9 rounded-xl overflow-hidden bg-cream dark:bg-slate-800 border border-sand dark:border-white/10 shrink-0 flex items-center justify-center text-accent font-bold italic">
+                {c.authorAvatar ? (
+                  <img src={c.authorAvatar} alt={c.authorName} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-sm uppercase">{c.authorName ? c.authorName[0] : "?"}</span>
+                )}
               </div>
-            </motion.div>
-          </header>
-
-          {/* Composer Section */}
-          <section className="bg-[#0A0A0B] border border-white/5 rounded-[2rem] p-6 mb-12 focus-within:border-white/10 transition-all shadow-premium">
-            <div className="flex gap-5">
-              <div className="w-10 h-10 shrink-0 bg-white/5 border border-white/10 rounded-xl overflow-hidden flex items-center justify-center italic text-xs">
-                {currentUser?.profilePicUrl ? (
-                  <img src={currentUser.profilePicUrl} className="w-full h-full object-cover" />
-                ) : currentUser?.fullName?.[0]}
-              </div>
-              <div className="flex-1 flex flex-col text-left">
-                <textarea
-                  value={postText}
-                  onChange={(e) => setPostText(e.target.value)}
-                  placeholder="What's on your academic mind?"
-                  className="w-full bg-transparent border-none outline-none text-[16px] font-serif italic text-slate-200 placeholder:text-slate-900 resize-none min-h-[60px]"
-                />
-                <AnimatePresence>
-                  {attachedFile && (
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="mt-4 p-2 bg-white/5 border border-white/5 rounded-lg flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <FileText size={14} className="text-brand-indigo" />
-                        <span className="text-[9px] font-bold text-slate-500 truncate max-w-[180px]">{attachedFile.name}</span>
-                      </div>
-                      <button onClick={() => setAttachedFile(null)} className="text-slate-600 hover:text-white bg-transparent border-none cursor-pointer"><X size={12} /></button>
-                    </motion.div>
+              <div className="flex-1 bg-cream dark:bg-white/5 rounded-2xl px-4 py-3 border border-sand dark:border-white/10">
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-xs font-bold text-ink dark:text-slate-100">{c.authorName}</span>
+                  {c.authorRole && (
+                    <span className="text-[9px] text-accent uppercase tracking-widest font-black">
+                      {c.authorRole}
+                    </span>
                   )}
-                </AnimatePresence>
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5">
-                  <div className="flex gap-1">
-                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setAttachedFile(e.target.files[0])} />
-                    <button onClick={() => fileInputRef.current.click()} className="p-2.5 text-slate-600 hover:text-brand-indigo rounded-lg transition-all bg-transparent border-none cursor-pointer"><Paperclip size={16} /></button>
-                  </div>
-                  <button onClick={handleBroadcast} disabled={isBroadcasting || uploading} className="bg-white text-black px-8 py-3.5 rounded-full text-[9px] font-black uppercase tracking-[0.3em] shadow-glow hover:bg-brand-indigo hover:text-white transition-all border-none cursor-pointer disabled:opacity-20">
-                    {isBroadcasting || uploading ? <Loader2 size={12} className="animate-spin" /> : "Broadcast"}
-                  </button>
                 </div>
+                <p className="text-[13px] text-ink-muted dark:text-slate-300 leading-relaxed font-display italic">
+                  {c.content}
+                </p>
               </div>
             </div>
-          </section>
+          ))
+        )}
+      </div>
 
-          {/* Broadcast List */}
-          <section className="space-y-6">
-            <AnimatePresence mode="popLayout">
-              {posts.map((post) => {
-                const isLiked = post.likes?.includes(currentUser?.id);
-                return (
-                  <motion.article key={post.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-[#0A0A0B] border border-white/5 rounded-[2rem] p-8 hover:border-white/10 transition-all">
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-white/5 border border-white/10 rounded-lg overflow-hidden flex items-center justify-center text-xs italic">{post.authorPic ? <img src={post.authorPic} className="w-full h-full object-cover" /> : post.authorName?.[0]}</div>
+      {/* New comment input */}
+      <div className="flex gap-3 items-start">
+        <div className="w-9 h-9 rounded-xl overflow-hidden bg-accent/5 border border-sand dark:border-white/10 shrink-0 flex items-center justify-center text-accent font-bold italic">
+          {currentUser?.avatarUrl ? (
+            <img src={currentUser.avatarUrl} alt="Me" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-sm uppercase">{currentUser?.fullName?.[0] || "?"}</span>
+          )}
+        </div>
+        <div className="flex-1 flex items-center gap-2 bg-cream dark:bg-white/5 rounded-2xl border border-sand dark:border-white/10 px-4 py-2 focus-within:border-accent transition-colors">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={t("hub.commentPlaceholder")}
+            disabled={submitting}
+            className="flex-1 bg-transparent outline-none text-sm placeholder:text-ink-faint text-ink dark:text-white disabled:opacity-50"
+          />
+          <button
+            onClick={onSubmit}
+            disabled={submitting || !draft.trim()}
+            aria-label={t("hub.commentSend")}
+            className="bg-accent text-white px-4 py-1.5 rounded-full font-bold text-[10px] uppercase tracking-widest hover:brightness-110 disabled:opacity-30 transition-all flex items-center gap-1.5 shadow shadow-accent/20"
+          >
+            {submitting ? <Loader2 className="animate-spin" size={12} /> : <>
+              {t("hub.commentSend")} <Send size={12} data-flip-rtl />
+            </>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default function ScholarHub() {
+  const router = useRouter();
+  const { user, userData, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
+  const [mounted, setMounted] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const [posts, setPosts] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [newPost, setNewPost] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ─── Comments state ───
+  const [openCommentsFor, setOpenCommentsFor] = useState(null);
+  const [commentsByPost, setCommentsByPost] = useState({});
+  const [loadingCommentsFor, setLoadingCommentsFor] = useState(null);
+  const [draftComment, setDraftComment] = useState({});
+  const [postingCommentFor, setPostingCommentFor] = useState(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (!authLoading && !user) router.replace("/auth");
+  }, [user, authLoading, router]);
+
+  useEffect(() => {
+    if (authLoading || !user?.uid || !userData?.uid) return;
+    const q = query(collection(firestore, "posts"), orderBy("createdAt", "desc"), limit(25));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      },
+      (error) => {
+        if (error?.code !== "permission-denied") console.error("Firestore Error:", error);
+      }
+    );
+    return () => unsubscribe();
+  }, [authLoading, user?.uid, userData?.uid]);
+
+  useEffect(() => {
+    if (authLoading || !user?.uid || !userData?.uid) return;
+    const q = query(
+      collection(firestore, "groups"),
+      where("members", "array-contains", user.uid)
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setGroups(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      },
+      (error) => {
+        if (error?.code !== "permission-denied") console.error("Groups Sync Error:", error);
+      }
+    );
+    return () => unsubscribe();
+  }, [authLoading, user?.uid, userData?.uid]);
+
+  const handleLike = async (postId) => {
+    const postRef = doc(firestore, "posts", postId);
+    try { await updateDoc(postRef, { likes: increment(1) }); } catch (e) { console.error(e); }
+  };
+
+  const handleCreatePost = async () => {
+    if (!newPost.trim() && !selectedFile) return;
+    setIsSubmitting(true);
+
+    try {
+      let fileUrl = null;
+      let fileName = null;
+
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        const response = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!response.ok) throw new Error(t("hub.uploadFailed"));
+        const data = await response.json();
+        fileUrl = data.url;
+        fileName = selectedFile.name;
+      }
+
+      await addDoc(collection(firestore, "posts"), {
+        content: newPost,
+        authorId: userData.uid,
+        authorName: userData.fullName,
+        authorRole: userData.major || t("roles.scholar"),
+        authorAvatar: userData.avatarUrl || "",
+        fileUrl: fileUrl,
+        fileName: fileName,
+        createdAt: serverTimestamp(),
+        likes: 0,
+        commentsCount: 0
+      });
+
+      setNewPost("");
+      setSelectedFile(null);
+    } catch (error) {
+      console.error("Transmission Error:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const toggleComments = async (postId) => {
+    if (openCommentsFor === postId) {
+      setOpenCommentsFor(null);
+      return;
+    }
+    setOpenCommentsFor(postId);
+    if (commentsByPost[postId]) return;
+    setLoadingCommentsFor(postId);
+    try {
+      const data = await api(`/api/posts/${postId}/comments`);
+      setCommentsByPost((prev) => ({ ...prev, [postId]: data.comments || [] }));
+    } catch (e) {
+      console.error("Comments fetch error:", e);
+      setCommentsByPost((prev) => ({ ...prev, [postId]: [] }));
+    } finally {
+      setLoadingCommentsFor(null);
+    }
+  };
+
+  const handleCommentSubmit = async (postId) => {
+    const content = (draftComment[postId] || "").trim();
+    if (!content || postingCommentFor === postId) return;
+
+    // Optimistic comment + count bump
+    const tempId = `temp-${Date.now()}`;
+    const optimistic = {
+      id: tempId,
+      content,
+      authorId: userData.uid,
+      authorName: userData.fullName,
+      authorAvatar: userData.avatarUrl || "",
+      authorRole: userData.major || "",
+      createdAt: new Date().toISOString(),
+      _optimistic: true,
+    };
+    setCommentsByPost((prev) => ({
+      ...prev,
+      [postId]: [...(prev[postId] || []), optimistic],
+    }));
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, commentsCount: (p.commentsCount || 0) + 1 } : p
+      )
+    );
+    setDraftComment((prev) => ({ ...prev, [postId]: "" }));
+    setPostingCommentFor(postId);
+
+    try {
+      const saved = await api(`/api/posts/${postId}/comments`, {
+        method: "POST",
+        body: { content },
+      });
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).map((c) => (c.id === tempId ? saved : c)),
+      }));
+    } catch (e) {
+      console.error("Comment submit error:", e);
+      // Rollback
+      setCommentsByPost((prev) => ({
+        ...prev,
+        [postId]: (prev[postId] || []).filter((c) => c.id !== tempId),
+      }));
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId
+            ? { ...p, commentsCount: Math.max(0, (p.commentsCount || 1) - 1) }
+            : p
+        )
+      );
+      setDraftComment((prev) => ({ ...prev, [postId]: content }));
+    } finally {
+      setPostingCommentFor(null);
+    }
+  };
+
+  if (!mounted || authLoading || !userData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-cream dark:bg-black">
+        <Loader2 className="animate-spin text-accent" size={40} />
+      </div>
+    );
+  }
+
+  const firstName = userData.fullName?.split(' ')[0] || t("roles.scholar");
+
+  return (
+    <div className="flex min-h-screen bg-cream dark:bg-black font-sans text-ink dark:text-white transition-colors duration-500 overflow-hidden">
+
+      <Sidebar currentUser={userData} groups={groups} />
+
+      <main className="flex-1 lg:ms-[280px] h-screen overflow-hidden flex flex-col relative">
+
+        {/* Header */}
+        <header className="h-20 px-8 flex items-center justify-between bg-cream/80 dark:bg-black/60 backdrop-blur-2xl border-b border-sand dark:border-white/5 z-30 sticky top-0">
+          <div className="flex items-center gap-4 bg-paper dark:bg-white/5 px-6 py-2.5 rounded-2xl w-full max-w-md border border-sand dark:border-white/10 shadow-sm">
+            <Search size={18} className="text-ink-faint" />
+            <input
+              type="text"
+              placeholder={t("hub.searchPlaceholder")}
+              className="bg-transparent outline-none text-sm w-full placeholder:text-ink-faint text-ink dark:text-white"
+            />
+          </div>
+          <NotificationCenter />
+        </header>
+
+        {/* Feed Content */}
+        <div className="flex-1 overflow-y-auto hide-scrollbar p-8 lg:p-12">
+          <div className="max-w-[800px] mx-auto space-y-10 pb-32">
+
+            {/* Post Forge */}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-paper dark:bg-white/5 rounded-[2rem] p-8 shadow-sm border border-sand dark:border-white/10">
+              <div className="flex gap-5">
+                <div className="w-14 h-14 rounded-2xl overflow-hidden bg-accent/5 border border-sand dark:border-white/10 shrink-0">
+                  {userData.avatarUrl ? (
+                    <img src={userData.avatarUrl} className="w-full h-full object-cover" alt="Me" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-accent font-bold italic text-xl uppercase">{userData.fullName[0]}</div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <textarea
+                    placeholder={t("hub.transmitPlaceholder", { name: firstName })}
+                    value={newPost}
+                    onChange={(e) => setNewPost(e.target.value)}
+                    className="w-full bg-transparent outline-none text-lg min-h-[100px] py-2 resize-none font-display italic placeholder:text-ink-faint"
+                  />
+
+                  {selectedFile && (
+                    <div className="mb-4 p-3 bg-cream dark:bg-white/5 rounded-xl flex items-center justify-between border border-sand dark:border-white/10">
+                      <div className="flex items-center gap-2">
+                        <Paperclip size={14} className="text-accent" />
+                        <span className="text-xs font-bold truncate max-w-[200px]">{selectedFile.name}</span>
+                      </div>
+                      <button onClick={() => setSelectedFile(null)} aria-label={t("chat.removeFile")} className="text-rose-500 p-1 hover:bg-rose-100 rounded-full transition-all">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-6 border-t border-sand dark:border-white/5">
+                    <button onClick={() => fileInputRef.current.click()} aria-label={t("chat.attachFile")} className="p-2 rounded-xl hover:bg-cream dark:hover:bg-white/5 text-accent transition-all">
+                      <Paperclip size={20} />
+                    </button>
+                    <input type="file" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} className="hidden" />
+
+                    <button
+                      onClick={handleCreatePost}
+                      disabled={isSubmitting || (!newPost.trim() && !selectedFile)}
+                      className="bg-accent text-white px-8 py-3 rounded-full font-bold text-[10px] uppercase tracking-widest hover:brightness-110 disabled:opacity-30 transition-all flex items-center gap-2 shadow-lg shadow-accent/20"
+                    >
+                      {isSubmitting ? <Loader2 className="animate-spin" size={14} /> : t("hub.transmit")} <Send size={14} data-flip-rtl />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Posts Stream */}
+            <div className="space-y-8">
+              {posts.length === 0 && (
+                <p className="text-center text-ink-faint italic font-display py-12">{t("hub.noPosts")}</p>
+              )}
+              <AnimatePresence>
+                {posts.map((post) => (
+                  <motion.div
+                    key={post.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-paper dark:bg-white/5 rounded-[2rem] p-8 border border-sand dark:border-white/10 shadow-sm"
+                  >
+                    <div className="flex justify-between items-start mb-6">
+                      <div className="flex items-center gap-4">
+                        <PostAvatar authorId={post.authorId} fallbackName={post.authorName} />
                         <div>
-                          <p className="font-bold text-[12px] text-white leading-none">{post.authorName}</p>
-                          <p className="text-[7px] text-slate-600 font-bold uppercase tracking-widest mt-1">{post.major}</p>
+                          <h3 className="text-sm font-bold text-ink dark:text-slate-100">{post.authorName}</h3>
+                          <p className="text-[10px] text-accent uppercase tracking-widest font-black mt-1">
+                            {post.authorRole} • <span className="text-ink-faint lowercase font-sans">{t("common.justNow")}</span>
+                          </p>
                         </div>
                       </div>
-                      <MoreHorizontal size={16} className="text-slate-800" />
+                      <button className="p-2 text-ink-faint hover:bg-cream rounded-lg transition-colors"><MoreHorizontal size={20} /></button>
                     </div>
-                    <p className="text-md font-serif italic text-slate-300 whitespace-pre-wrap mb-6 text-left">{post.text}</p>
-                    {post.file && (
-                      <div className="p-4 bg-black/40 border border-white/5 rounded-xl flex items-center gap-4 mb-6">
-                        <FileText className="text-brand-indigo" size={20} />
-                        <div className="flex-1 min-w-0 text-left">
-                          <p className="text-[9px] font-black text-white uppercase truncate">{post.file.name}</p>
-                          <a href={post.file.url} target="_blank" className="text-[7px] text-brand-indigo font-bold uppercase no-underline hover:underline">Download Resource</a>
-                        </div>
+
+                    <p className="text-ink-muted dark:text-slate-300 text-[15px] leading-relaxed mb-6 px-1 font-display italic">
+                      {post.content}
+                    </p>
+
+                    {post.fileUrl && (
+                      <div className="mb-6 flex items-center gap-2 flex-wrap">
+                        {isViewableInBrowser(post.fileUrl, post.fileName) && (
+                          <a
+                            href={buildViewUrl(post.fileUrl, post.fileName)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-3 p-4 bg-cream dark:bg-white/5 rounded-2xl border border-sand dark:border-white/10 hover:border-accent transition-all group"
+                          >
+                            <div className="p-2 bg-accent/10 text-accent rounded-lg group-hover:bg-accent group-hover:text-white transition-colors">
+                              <Eye size={16} />
+                            </div>
+                            <div className="flex flex-col pe-2">
+                              <span className="text-xs font-bold text-ink dark:text-white truncate max-w-[200px]">{post.fileName}</span>
+                              <span className="text-[9px] text-ink-faint uppercase tracking-widest">{t("hub.openAsset")}</span>
+                            </div>
+                          </a>
+                        )}
+                        <a
+                          href={buildDownloadUrl(post.fileUrl, post.fileName)}
+                          download={post.fileName || true}
+                          className="inline-flex items-center gap-3 p-4 bg-cream dark:bg-white/5 rounded-2xl border border-sand dark:border-white/10 hover:border-accent transition-all group"
+                        >
+                          <div className="p-2 bg-accent/10 text-accent rounded-lg group-hover:bg-accent group-hover:text-white transition-colors">
+                            <Download size={16} />
+                          </div>
+                          <div className="flex flex-col pe-2">
+                            <span className="text-xs font-bold text-ink dark:text-white truncate max-w-[200px]">{post.fileName}</span>
+                            <span className="text-[9px] text-ink-faint uppercase tracking-widest">{t("hub.downloadAsset")}</span>
+                          </div>
+                        </a>
                       </div>
                     )}
-                    <div className="flex items-center gap-6 mt-4 pt-6 border-t border-white/5">
-                      <button onClick={() => handleLike(post.id, post.likes)} className={`flex items-center gap-2 text-[9px] font-black uppercase bg-transparent border-none cursor-pointer ${isLiked ? 'text-rose-500' : 'text-slate-700 hover:text-rose-500'}`}>
-                        <Heart size={14} fill={isLiked ? "currentColor" : "none"} /> {post.likes?.length || 0}
+
+                    <div className="flex items-center gap-10 border-t border-sand dark:border-white/5 pt-6">
+                      <button onClick={() => handleLike(post.id)} className="flex items-center gap-2 text-ink-faint hover:text-rose-500 transition-all text-[11px] font-bold uppercase tracking-widest group">
+                        <Heart size={18} className={post.likes > 0 ? "fill-rose-500 text-rose-500" : ""} /> {post.likes || 0}
                       </button>
-                      <button onClick={() => setActiveCommentId(activeCommentId === post.id ? null : post.id)} className="flex items-center gap-2 text-[9px] font-black text-slate-700 hover:text-brand-indigo bg-transparent border-none cursor-pointer uppercase tracking-widest">
-                        <MessageCircle size={14} /> {post.repliesCount || 0} Replies
+                      <button
+                        onClick={() => toggleComments(post.id)}
+                        aria-expanded={openCommentsFor === post.id}
+                        className={`flex items-center gap-2 transition-all text-[11px] font-bold uppercase tracking-widest ${
+                          openCommentsFor === post.id ? "text-accent" : "text-ink-faint hover:text-accent"
+                        }`}
+                      >
+                        <MessageSquare size={18} /> {post.commentsCount || 0}
                       </button>
                     </div>
-                    <AnimatePresence>
-                      {activeCommentId === post.id && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                          <PostComments postId={post.id} />
-                          <div className="mt-6 flex gap-2 bg-white/[0.02] border border-white/5 p-2 rounded-xl">
-                            <input value={commentText} onChange={(e) => setCommentText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendComment(post.id)} placeholder="Reply to node..." className="flex-1 bg-transparent border-none outline-none px-3 py-2 text-[11px] text-white italic font-serif" />
-                            <button onClick={() => handleSendComment(post.id)} className="w-8 h-8 bg-brand-indigo text-white rounded-lg flex items-center justify-center border-none cursor-pointer"><Send size={12} /></button>
-                          </div>
+
+                    <AnimatePresence initial={false}>
+                      {openCommentsFor === post.id && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <CommentsThread
+                            postId={post.id}
+                            loading={loadingCommentsFor === post.id}
+                            comments={commentsByPost[post.id] || []}
+                            draft={draftComment[post.id] || ""}
+                            onDraftChange={(val) =>
+                              setDraftComment((prev) => ({ ...prev, [post.id]: val }))
+                            }
+                            onSubmit={() => handleCommentSubmit(post.id)}
+                            submitting={postingCommentFor === post.id}
+                            currentUser={userData}
+                            t={t}
+                          />
                         </motion.div>
                       )}
                     </AnimatePresence>
-                  </motion.article>
-                );
-              })}
-            </AnimatePresence>
-          </section>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
         </div>
-
-        {/* Right Sidebar */}
-        <aside className="hidden xl:flex flex-col w-[320px] sticky top-10 h-fit ml-auto">
-          <ActiveNodesSidebar
-            nodes={userNodes}
-            currentUser={currentUser}
-            loading={loadingNodes}
-          />
-        </aside>
-
       </main>
 
-      <style dangerouslySetInnerHTML={{
-        __html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 2px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.02); border-radius: 10px; }
-      `}} />
+      <style jsx global>{`
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+      `}</style>
     </div>
   );
 }

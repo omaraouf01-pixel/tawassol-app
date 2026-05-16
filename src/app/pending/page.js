@@ -1,124 +1,129 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, ShieldCheck, LogOut, Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
+import { Clock, LogOut, Loader2, Mail } from "lucide-react";
 
-// ─── الاستيرادات الحقيقية ───
-import { auth, firestore } from "@/lib/firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import { useAuth } from "@/lib/useAuth";
+import { useLanguage } from "@/lib/useLanguage";
 
-// ─── الشعار الموحد ───
 import TsswalLogo from "@/components/TsswalLogo";
 
 export default function PendingPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const { user, userData, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
 
   useEffect(() => {
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        // ─── المستشعر اللحظي (Real-time Watcher) ───
-        // يراقب أي تغيير في حالة المستخدم داخل Firestore
-        const unsubDoc = onSnapshot(doc(firestore, "users", user.uid), (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            setLoading(false);
-
-            // منطق التوجيه بناءً على الحالة الجديدة (State Machine)
-            if (data.status === "approved_onboarding") {
-              // إذا وافق الآدمين، نرسله لإكمال بروفايله فوراً
-              router.push("/onboarding");
-            }
-            else if (data.status === "active") {
-              // إذا كان عضواً نشطاً بالفعل
-              router.push("/hub");
-            }
-            else if (data.role === "admin") {
-              // إذا دخل الآدمين لهذه الصفحة بالخطأ
-              router.push("/admin");
-            }
-            // إذا كانت الحالة لا تزال pending، سيبقى الطالب في هذه الصفحة
-          }
-        });
-
-        return () => unsubDoc();
-      } else {
-        // إذا لم يكن مسجلاً، نرسله لصفحة الدخول
-        router.push("/auth");
+    if (!authLoading) {
+      if (!user) {
+        router.replace("/auth");
+        return;
       }
-    });
 
-    return () => unsubAuth();
-  }, [router]);
+      if (userData) {
+        if (userData.role === "admin") {
+          router.replace("/admin");
+        } else if (userData.status === "approved_onboarding" || (userData.status === "active" && !userData.onboarded)) {
+          router.replace("/onboarding");
+        } else if (userData.status === "active" && userData.onboarded) {
+          router.replace("/hub");
+        }
+      }
+    }
+  }, [user, userData, authLoading, router]);
 
   const handleLogout = async () => {
     await signOut(auth);
-    router.push("/auth");
+    router.replace("/auth");
   };
 
-  if (loading) {
+  const pageBg = "bg-[#F8F8F5] dark:bg-[#0a0a0b] transition-colors duration-700";
+
+  if (authLoading || (user && !userData) || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="text-brand-indigo animate-spin" size={32} />
+      <div className={`min-h-screen flex items-center justify-center ${pageBg}`}>
+        <Loader2 className="text-[#7c83f2] animate-spin" size={40} />
       </div>
     );
   }
 
   return (
-    <div dir="ltr" className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-8 selection:bg-brand-indigo/30 relative overflow-hidden font-sans">
+    <div className={`min-h-screen flex flex-col font-sans ${pageBg}`}>
+      <header className="max-w-[1360px] w-full mx-auto px-6 lg:px-10 py-6 flex justify-between items-center relative z-20">
+        <button onClick={() => router.push("/")} className="flex items-center gap-3.5 group">
+          <div className="w-10 h-10 rounded-[12px] flex items-center justify-center text-white
+                          bg-[#7c83f2] shadow-lg shadow-[#7c83f2]/20 group-hover:scale-105 transition-all">
+            <TsswalLogo size={20} />
+          </div>
+          <div className="flex flex-col text-start border-s-[1.5px] border-slate-200 dark:border-slate-800 ps-3.5">
+            <span className="font-serif text-[18px] italic font-bold tracking-[0.04em] text-slate-800 dark:text-slate-100">
+              {t("common.appName")}
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7c83f2]">
+              {t("auth.gatewayPortal")}
+            </span>
+          </div>
+        </button>
+      </header>
 
-      {/* Background Ambience */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-brand-indigo/5 blur-[120px] pointer-events-none rounded-full" />
-
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-xl bg-white/[0.01] border border-white/5 rounded-[4rem] p-12 lg:p-20 shadow-premium text-center relative z-10"
-      >
-        <TsswalLogo size={48} className="mb-12 mx-auto" />
-
-        <div className="relative">
-          {/* Animated Clock / Radar Icon */}
-          <div className="w-24 h-24 bg-brand-indigo/10 rounded-[2.5rem] flex items-center justify-center mx-auto mb-10 relative group">
-            <Clock size={36} className="text-brand-indigo animate-pulse" />
+      <main className="flex-1 flex items-center justify-center px-6 py-10 relative z-10">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-[500px] rounded-[32px] p-10 sm:p-14 text-center
+                     bg-white dark:bg-slate-900 shadow-xl border border-slate-100 dark:border-slate-800"
+        >
+          <div className="relative w-24 h-24 mx-auto mb-10">
+            <div className="absolute inset-0 rounded-3xl bg-[#7c83f2]/10 flex items-center justify-center">
+              <Clock size={40} className="text-[#7c83f2] animate-pulse" />
+            </div>
             <motion.div
               animate={{ rotate: 360 }}
-              transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-0 border-2 border-dashed border-brand-indigo/20 rounded-[2.5rem]"
+              transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+              className="absolute inset-0 rounded-3xl border-2 border-dashed border-[#7c83f2]/30"
             />
           </div>
 
-          <h1 className="text-4xl lg:text-5xl font-serif font-black italic text-white leading-tight mb-6">
-            Identity <br /><span className="text-brand-indigo/80">Syncing.</span>
+          <h1 className="font-serif text-[32px] font-semibold leading-tight text-slate-800 dark:text-slate-50 mb-4">
+            {t("pending.title")}
           </h1>
 
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] max-w-sm mx-auto leading-relaxed">
-            Your academic credentials have been received. We are currently verifying your node within the sanctuary network.
+          <p className="text-[15px] leading-relaxed text-slate-500 dark:text-slate-400 mb-8">
+            {t("pending.body")}
           </p>
 
-          <div className="mt-14 pt-10 border-t border-white/5 flex flex-col items-center gap-8">
-            {/* Status Badge */}
-            <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.3em] text-brand-indigo bg-brand-indigo/5 px-6 py-3 rounded-full border border-brand-indigo/10">
-              <ShieldCheck size={16} /> Status: Awaiting Overseer Approval
+          <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full
+                          text-[13px] font-medium bg-[#F8F8F5] dark:bg-slate-800 text-slate-600 dark:text-slate-300 mb-8">
+            <Mail size={14} className="opacity-60" />
+            <span>{user.email}</span>
+          </div>
+
+          <div className="flex flex-col gap-4 pt-6 border-t border-slate-50 dark:border-slate-800">
+            <div className="flex items-center justify-center gap-2 text-[12px] font-bold uppercase tracking-widest text-emerald-500 bg-emerald-500/10 py-3 rounded-2xl">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              {t("status.pending")}
             </div>
 
-            {/* Logout Option */}
             <button
               onClick={handleLogout}
-              className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.4em] text-slate-700 hover:text-rose-500 transition-all bg-transparent border-none cursor-pointer group"
+              className="flex items-center justify-center gap-2 py-4 rounded-2xl text-[13px] font-bold
+                         text-slate-400 hover:text-rose-500 hover:bg-rose-500/5 transition-all"
             >
-              <LogOut size={14} className="group-hover:-translate-x-1 transition-transform" />
-              Terminate Link
+              <LogOut size={16} data-flip-rtl />
+              {t("pending.logout")}
             </button>
           </div>
-        </div>
-      </motion.div>
+        </motion.div>
+      </main>
 
-      <footer className="mt-12 text-[9px] font-black uppercase text-slate-800 tracking-[0.6em] italic">
-        Oran University Node • Twassel Protocol
+      <footer className="text-center py-8 relative z-10">
+        <p className="text-[11px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-widest">
+          {t("auth.universityNetwork")} · {t("common.appName")}
+        </p>
       </footer>
     </div>
   );

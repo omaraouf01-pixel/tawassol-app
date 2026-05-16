@@ -28,7 +28,24 @@ export const POST = withAuth(async (req, { params }, { uid, user }) => {
   if ((group.members || []).includes(uid)) return jsonError("Already a member", 409);
   if (!user) return jsonError("User not found", 404);
 
-  // Check if already pending
+  // ── Open Access: bypass approval, join immediately ──
+  if (group.accessType === "open") {
+    if ((group.memberCount || 0) >= (group.maxMembers || 200)) {
+      return jsonError("Node has reached its capacity", 409);
+    }
+
+    const newMember = { uid, name: user.fullName, role: "Scholar" };
+    await groupRef.update({
+      members: FieldValue.arrayUnion(uid),
+      membersList: FieldValue.arrayUnion(newMember),
+      memberCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return jsonOk({ status: "joined", accessType: "open" }, 201);
+  }
+
+  // ── Protected Access: standard pending request flow ──
   const existingReqs = await joinRequestsCol()
     .where("groupId", "==", params.id)
     .where("userId", "==", uid)
@@ -54,5 +71,5 @@ export const POST = withAuth(async (req, { params }, { uid, user }) => {
 
   await newReqRef.set(newReq);
 
-  return jsonOk({ id: newReqRef.id, status: "pending" }, 201);
+  return jsonOk({ id: newReqRef.id, status: "pending", accessType: "protected" }, 201);
 }, "JOIN_REQ_CREATE");

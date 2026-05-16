@@ -1,35 +1,29 @@
 // ════════════════════════════════════════════════════════════════
-// Collections Firestore — TAWASSOL (Client-Safe Version)
+// Collections Firestore — TAWASSOL (Server / Admin SDK)
+// ────────────────────────────────────────────────────────────────
+// هذا الملف server-only ويستخدم firebase-admin.
+// المكوّنات (use client) يجب أن تستورد COL من "@/lib/collectionNames".
+// Server-only — يستورد firebase-admin (Node).
 // ════════════════════════════════════════════════════════════════
+import { adminDb, FieldValue } from "./firebaseAdmin";
+import { COL } from "./collectionNames";
 
-import { firestore as db } from "./firebase"; // استيراد نسخة المتصفح
-import { collection, serverTimestamp } from "firebase/firestore";
+// أعد تصدير COL كي تبقى الاستيرادات الحالية في API routes تعمل دون تغيير
+export { COL };
 
-// ─── Noms des collections ──────────────────────────────────────
-export const COL = {
-  USERS: "users",
-  GROUPS: "groups",
-  MESSAGES: "messages",
-  POSTS: "posts",
-  NOTIFICATIONS: "notifications",
-  RESOURCES: "resources",
-  JOIN_REQUESTS: "join-requests",
-};
-
-// ─── Références rapides (Client-Side Compatible) ───────────────
-export const usersCol = () => collection(db, COL.USERS);
-export const groupsCol = () => collection(db, COL.GROUPS);
-export const messagesCol = () => collection(db, COL.MESSAGES);
-export const postsCol = () => collection(db, COL.POSTS);
-export const notificationsCol = () => collection(db, COL.NOTIFICATIONS);
-export const resourcesCol = () => collection(db, COL.RESOURCES);
-export const joinRequestsCol = () => collection(db, COL.JOIN_REQUESTS);
+// ─── Collection References (Admin SDK) ──────────────────────────
+export const usersCol = () => adminDb.collection(COL.USERS);
+export const groupsCol = () => adminDb.collection(COL.GROUPS);
+export const messagesCol = () => adminDb.collection(COL.MESSAGES);
+export const postsCol = () => adminDb.collection(COL.POSTS);
+export const notificationsCol = () => adminDb.collection(COL.NOTIFICATIONS);
+export const resourcesCol = () => adminDb.collection(COL.RESOURCES);
+export const joinRequestsCol = () => adminDb.collection(COL.JOIN_REQUESTS);
 
 // ════════════════════════════════════════════════════════════════
-// Validators & Document Builders
+// Document Builders (Admin FieldValue)
 // ════════════════════════════════════════════════════════════════
 
-/** Lance une erreur si une condition n'est pas remplie. */
 function assert(cond, msg) {
   if (!cond) {
     const err = new Error(msg);
@@ -38,12 +32,14 @@ function assert(cond, msg) {
   }
 }
 
-// ─── User ──────────────────────────────────────────────────────
+const serverTimestamp = () => FieldValue.serverTimestamp();
+
+// ─── User Document Builder ─────────────────────────────────────
 export function buildUserDoc(data) {
-  assert(data.uid, "uid requis");
-  assert(data.email, "email requis");
-  assert(data.fullName, "fullName requis");
-  assert(data.matricule, "matricule requis");
+  assert(data.uid, "uid is required");
+  assert(data.email, "email is required");
+  assert(data.fullName, "fullName is required");
+  assert(data.matricule, "matricule is required");
 
   return {
     uid: data.uid,
@@ -55,97 +51,91 @@ export function buildUserDoc(data) {
     status: data.status && ["pending", "active", "rejected"].includes(data.status) ? data.status : "pending",
     groups: Array.isArray(data.groups) ? data.groups : [],
     onboarded: !!data.onboarded,
-    createdByAdmin: !!data.createdByAdmin,
-    university: data.university || null,
+    university: data.university || "University of Oran 1",
     department: data.department || null,
+    major: data.major || null,
     bio: (data.bio || "").slice(0, 500),
     avatarUrl: data.avatarUrl || null,
-    createdAt: serverTimestamp(),
+    createdAt: data.createdAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 }
 
-// ─── Group ─────────────────────────────────────────────────────
+// ─── Group Document Builder ────────────────────────────────────
 export function buildGroupDoc(data) {
-  assert(data.name, "name requis");
-  assert(data.subject, "subject requis");
-  assert(data.leaderId, "leaderId requis");
-  assert(data.leaderName, "leaderName requis");
+  assert(data.name, "name is required");
+  assert(data.leaderId, "leaderId is required");
 
   const max = Number(data.maxMembers) || 30;
+  const accessType = data.accessType === "open" ? "open" : "protected";
+  const questions = Array.isArray(data.questions) ? data.questions.filter(Boolean) : [];
   return {
     name: String(data.name).trim(),
-    subject: data.subject,
+    subject: data.subject || "General",
     description: data.description || "",
     rules: data.rules || "",
     tags: Array.isArray(data.tags) ? data.tags : [],
-    questions: Array.isArray(data.questions) ? data.questions : [],
+    questions: accessType === "open" ? [] : questions,
+    accessType,
     maxMembers: Math.min(Math.max(max, 2), 200),
     leaderId: data.leaderId,
     leaderName: data.leaderName,
     members: Array.isArray(data.members) ? data.members : [data.leaderId],
-    memberCount: data.memberCount || 1,
-    membersList: Array.isArray(data.membersList) ? data.membersList : [
-      { uid: data.leaderId, name: data.leaderName, role: "Leader" },
-    ],
-    status: data.status && ["active", "archived"].includes(data.status) ? data.status : "active",
+    membersList: Array.isArray(data.membersList) ? data.membersList : [],
+    memberCount: data.members?.length || 1,
+    status: data.status || "active",
     isPublic: data.isPublic !== undefined ? !!data.isPublic : true,
-    createdAt: serverTimestamp(),
+    createdAt: data.createdAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 }
 
-// ─── Message ───────────────────────────────────────────────────
+// ─── Message Document Builder ──────────────────────────────────
 export function buildMessageDoc(data) {
-  assert(data.groupId, "groupId requis");
-  assert(data.uid, "uid requis");
-  assert(data.userName, "userName requis");
-  assert(data.text || data.imageUrl || data.fileUrl, "Message vide");
-
-  const hasAttachment = !!(data.imageUrl || data.fileUrl);
-  const isLeaderUpload = hasAttachment && data.leaderId && data.uid === data.leaderId;
-  const moderationStatus = hasAttachment
-    ? (isLeaderUpload ? "approved" : "pending")
-    : "approved";
+  assert(data.groupId, "groupId is required");
+  assert(data.authorId, "authorId is required");
+  assert(data.text || data.fileUrl, "Message cannot be empty");
 
   return {
     groupId: data.groupId,
-    uid: data.uid,
-    userName: data.userName,
+    authorId: data.authorId,
+    authorName: data.authorName,
+    authorAvatar: data.authorAvatar || null,
     text: data.text || "",
-    imageUrl: data.imageUrl || null,
     fileUrl: data.fileUrl || null,
     fileName: data.fileName || null,
     fileType: data.fileType || null,
     replyTo: data.replyTo || null,
-    moderationStatus,
+    moderationStatus: data.moderationStatus || "approved",
     createdAt: serverTimestamp(),
   };
 }
 
-// ─── Post ──────────────────────────────────────────────────────
+// ─── Post Document Builder ─────────────────────────────────────
 export function buildPostDoc(data) {
-  assert(data.uid, "uid requis");
-  assert(data.authorName, "authorName requis");
-  assert(data.text, "text requis");
-  assert(data.text.length <= 2000, "Texte trop long (max 2000)");
+  assert(data.authorId, "authorId is required");
+  assert(data.authorName, "authorName is required");
+  assert(data.content, "content is required");
 
   return {
-    uid: data.uid,
+    authorId: data.authorId,
     authorName: data.authorName,
-    major: data.major || "",
-    text: data.text,
-    tag: data.tag || "General",
-    likes: [],
-    createdAt: serverTimestamp(),
+    authorRole: data.authorRole || "Scholar",
+    authorAvatar: data.authorAvatar || null,
+    content: data.content,
+    fileUrl: data.fileUrl || null,
+    fileName: data.fileName || null,
+    likes: data.likes || 0,
+    commentsCount: data.commentsCount || 0,
+    createdAt: data.createdAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 }
 
-// ─── Notification ──────────────────────────────────────────────
+// ─── Notification Document Builder ─────────────────────────────
 export function buildNotificationDoc(data) {
-  assert(data.userId, "userId requis");
-  assert(data.title, "title requis");
+  assert(data.userId, "userId is required");
+  assert(data.title, "title is required");
 
   return {
     userId: data.userId,
@@ -157,31 +147,10 @@ export function buildNotificationDoc(data) {
   };
 }
 
-// ─── Resource ──────────────────────────────────────────────────
-export function buildResourceDoc(data) {
-  assert(data.groupId, "groupId requis");
-  assert(data.name, "name requis");
-  assert(data.url, "url requis");
-  assert(data.uid, "uid requis");
-  assert(data.uploader, "uploader requis");
-
-  return {
-    groupId: data.groupId,
-    name: data.name,
-    url: data.url,
-    uid: data.uid,
-    uploader: data.uploader,
-    status: data.status && ["pending", "approved"].includes(data.status) ? data.status : "pending",
-    createdAt: serverTimestamp(),
-  };
-}
-
-// ─── JoinRequest ───────────────────────────────────────────────
+// ─── Join Request Document Builder ─────────────────────────────
 export function buildJoinRequestDoc(data) {
-  assert(data.groupId, "groupId requis");
-  assert(data.groupName, "groupName requis");
-  assert(data.userId, "userId requis");
-  assert(data.userName, "userName requis");
+  assert(data.groupId, "groupId is required");
+  assert(data.userId, "userId is required");
 
   return {
     groupId: data.groupId,

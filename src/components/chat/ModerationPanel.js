@@ -11,7 +11,8 @@ import {
   doc, updateDoc, arrayUnion, deleteDoc,
   collection, increment, serverTimestamp
 } from "firebase/firestore";
-import { COL } from "@/lib/collections";
+import { COL } from "@/lib/collectionNames";
+import { useLanguage } from "@/lib/useLanguage";
 
 export default function ModerationPanel({
   showModeration,
@@ -21,6 +22,7 @@ export default function ModerationPanel({
   id,
   setToast
 }) {
+  const { t } = useLanguage();
   const [processingId, setProcessingId] = useState(null);
 
   // --- Handle Join Request Decisions ---
@@ -40,30 +42,32 @@ export default function ModerationPanel({
       const requestRef = doc(firestore, COL.JOIN_REQUESTS, request.id);
       await updateDoc(requestRef, { status: isApproved ? "approved" : "rejected" });
 
-      setToast(isApproved ? "Scholar admission synchronized." : "Entry request denied.");
+      setToast(isApproved ? t("chat.joinRequests.accepted") : t("chat.joinRequests.declined"));
     } catch (err) {
       console.error(err);
-      setToast("Protocol synchronization failed.");
+      setToast(t("chat.joinRequests.actionError"));
     } finally {
       setProcessingId(null);
     }
   };
 
   // --- Handle File Verification Decisions ---
+  // ✳️ Les messages sont stockés en COLLECTION TOP-LEVEL "messages"
+  //    (cf. useChat.js + firestore.rules). Pas de sous-collection.
   const handleFileDecision = async (msgId, isApproved) => {
     setProcessingId(msgId);
     try {
-      const msgRef = doc(firestore, COL.GROUPS, id, "messages", msgId);
+      const msgRef = doc(firestore, COL.MESSAGES, msgId);
       if (isApproved) {
         await updateDoc(msgRef, { moderationStatus: "approved" });
-        setToast("Academic asset verified and released.");
+        setToast(t("chat.moderation.approved"));
       } else {
         await deleteDoc(msgRef);
-        setToast("Asset rejected and purged.");
+        setToast(t("chat.moderation.rejected"));
       }
     } catch (err) {
       console.error(err);
-      setToast("Asset verification failed.");
+      setToast(t("chat.moderation.actionError"));
     } finally {
       setProcessingId(null);
     }
@@ -84,7 +88,7 @@ export default function ModerationPanel({
           <motion.aside
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed top-0 right-0 h-screen w-full sm:w-[450px] bg-[#050505] border-l border-white/10 z-[190] flex flex-col shadow-2xl"
+            className="fixed top-0 end-0 h-screen w-full sm:w-[450px] bg-[#050505] border-s border-white/10 z-[190] flex flex-col shadow-2xl"
           >
             {/* Header */}
             <div className="p-8 border-b border-white/5 flex items-center justify-between bg-[#0A0A0B]">
@@ -93,8 +97,8 @@ export default function ModerationPanel({
                   <ShieldCheck size={20} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-serif font-black italic text-white leading-none">Overseer Command</h3>
-                  <p className="text-[7px] font-black uppercase text-slate-600 tracking-[0.3em] mt-2">Node Governance Protocol</p>
+                  <h3 className="text-lg font-serif font-black italic text-white leading-none">{t("chat.moderation.title")}</h3>
+                  <p className="text-[7px] font-black uppercase text-slate-600 tracking-[0.3em] mt-2">{t("roles.overseer")}</p>
                 </div>
               </div>
               <button onClick={() => setShowModeration(false)} className="p-2 bg-white/5 text-slate-500 hover:text-white rounded-xl border-none cursor-pointer transition-colors">
@@ -108,7 +112,7 @@ export default function ModerationPanel({
               <section>
                 <div className="flex items-center justify-between mb-6 px-2">
                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-indigo flex items-center gap-2">
-                    <UserCheck size={12} /> Pending Scholars
+                    <UserCheck size={12} /> {t("chat.joinRequests.title")}
                   </h4>
                   <span className="bg-white/5 text-slate-500 text-[9px] px-2 py-0.5 rounded-full font-bold">{joinRequests.length}</span>
                 </div>
@@ -116,7 +120,7 @@ export default function ModerationPanel({
                 <div className="space-y-3">
                   <AnimatePresence mode="popLayout">
                     {joinRequests.length === 0 ? (
-                      <EmptyState key="empty-scholars" message="No pending frequencies." />
+                      <EmptyState key="empty-scholars" message={t("chat.joinRequests.empty")} />
                     ) : (
                       joinRequests.map((req) => (
                         <ModerationCard
@@ -137,7 +141,7 @@ export default function ModerationPanel({
               <section>
                 <div className="flex items-center justify-between mb-6 px-2">
                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2">
-                    <Zap size={12} /> Asset Verification
+                    <Zap size={12} /> {t("chat.moderation.pendingFiles")}
                   </h4>
                   <span className="bg-white/5 text-slate-500 text-[9px] px-2 py-0.5 rounded-full font-bold">{pendingMessages.length}</span>
                 </div>
@@ -145,7 +149,7 @@ export default function ModerationPanel({
                 <div className="space-y-3">
                   <AnimatePresence mode="popLayout">
                     {pendingMessages.length === 0 ? (
-                      <EmptyState key="empty-assets" message="No assets requiring sync." />
+                      <EmptyState key="empty-assets" message={t("chat.moderation.noPending")} />
                     ) : (
                       pendingMessages.map((msg) => (
                         <ModerationCard

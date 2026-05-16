@@ -24,9 +24,13 @@ export async function POST(request, { params }) {
       userData = q.docs[0].data();
     }
 
-    await ref.update({ status: "active", updatedAt: FieldValue.serverTimestamp() });
+    const onboardedFlag = userData.onboarded === true;
+    await ref.update({
+      status: "active",
+      onboarded: onboardedFlag,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
-    // Synchroniser les Custom Claims (rôle de l'user) sur Firebase Auth
     const authUid = userData.uid || params.uid;
     try {
       await adminAuth.setCustomUserClaims(authUid, {
@@ -34,8 +38,9 @@ export async function POST(request, { params }) {
         admin: userData.role === "admin",
         status: "active",
       });
+      await adminAuth.revokeRefreshTokens(authUid);
     } catch (e) {
-      console.warn("[approve] setCustomUserClaims:", e.code || e.message);
+      console.warn("[approve] claims/revoke:", e.code || e.message);
     }
 
     return NextResponse.json({ ok: true });

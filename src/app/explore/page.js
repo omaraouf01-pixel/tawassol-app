@@ -1,196 +1,546 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
-import { Search, Zap, BookOpen, Code, Terminal, Globe, Sparkles, School, Compass, Lock, Filter, LayoutGrid } from "lucide-react";
+import {
+  Search, Loader2, Sparkles, Compass,
+  GraduationCap, Flame, LayoutGrid, School, Book,
+  SlidersHorizontal, ChevronDown, X, RotateCcw, Check
+} from "lucide-react";
 
-// ─── المكونات الخارجية ───
+// ─── المكونات والخطافات ───
 import Sidebar from "@/components/Sidebar";
-import TsswalLogo from "@/components/TsswalLogo";
+import DiscoveryGrid from "@/components/DiscoveryGrid";
+import NodeShelf from "@/components/explore/NodeShelf";
 import JoinNodeModal from "@/components/explore/JoinNodeModal";
-import ActiveNodesSidebar from "@/components/chat/ActiveNodesSidebar";
+import { useAuth } from "@/lib/useAuth";
+import { useLanguage } from "@/lib/useLanguage";
+import { useAllGroups } from "@/lib/useAllGroups";
+import { firestore } from "@/lib/firebase";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { selectMajorMatched, selectHighFrequency, excludeIds } from "@/lib/relevance";
+import { api } from "@/lib/apiClient";
 
-// ─── دوال قاعدة البيانات ───
-import { auth, firestore } from "@/lib/firebase";
-import { collection, query, onSnapshot, orderBy, doc, getDoc, where } from "firebase/firestore";
-import { COL } from "@/lib/collections";
+// ─── البيانات الأكاديمية الموحَّدة ───
+import {
+  UNIVERSITIES, MAJORS, LEVELS, ALL,
+  UNIVERSITY_LABELS, MAJOR_LABELS,
+} from "@/lib/academicData";
 
-const ICON_MAP = { BookOpen, Code, Terminal, Globe, Sparkles, Compass };
-const ACADEMIC_STAGES = ["All", "L1", "L2", "L3", "M1", "M2"]; // تطابق أزرار الصورة
+// ─── ثابت اللون الأرجواني الصريح للمشروع ───
+const PURPLE = "#7c83f2";
 
-export default function ExplorePage() {
-  const router = useRouter();
-  const [search, setSearch] = useState("");
-  const [selectedYear, setSelectedYear] = useState("All"); // الحالة الافتراضية
+// ─── أدوات الفلترة (Pure helpers) ───
+const matchesUniversity = (node, uni) => {
+  if (uni === ALL) return true;
+  return node.university === uni || node.tags?.includes(uni);
+};
+const matchesMajor = (node, major) => {
+  if (major === ALL) return true;
+  return (
+    node.subject === major ||
+    node.major === major ||
+    node.tags?.includes(major)
+  );
+};
+const matchesLevel = (node, level) => {
+  if (level === ALL) return true;
+  return node.level === level || node.tags?.includes(level);
+};
 
-  const [groups, setGroups] = useState([]);
-  const [userNodes, setUserNodes] = useState([]);
+export default function ScholarExplore() {
+  const { userData, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
+  const { groups: allGroups, loading: groupsLoading } = useAllGroups();
 
-  const [loading, setLoading] = useState(true);
-  const [loadingNodes, setLoadingNodes] = useState(true);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  // ─── حالات الصفحة ───
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState({
+    university: ALL,
+    major: ALL,
+    level: ALL,
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState(null); // 'university' | 'major' | 'level' | null
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [myGroups, setMyGroups] = useState([]);
+  const [pendingGroupIds, setPendingGroupIds] = useState(new Set());
 
+  // جلب قائمة المجموعات التي للمستخدم طلب انضمام معلق فيها
+  const refreshPending = React.useCallback(async () => {
+    if (!userData?.uid) return;
+    try {
+      const res = await api("/api/user/pending-requests");
+      setPendingGroupIds(new Set(res.groupIds || []));
+    } catch (e) {
+      // فشل صامت — لا نمنع الاستكشاف
+    }
+  }, [userData?.uid]);
+
+  useEffect(() => { refreshPending(); }, [refreshPending]);
+
+  // Sidebar groups (real-time) — مجموعات المستخدم فقط
+  // ملاحظة: useAllGroups أعلاه يبقى لشبكة الاستكشاف (Explore تعرض كل المتاح)،
+  //         بينما الـ Sidebar تعرض فقط ما ينتمي إليه المستخدم.
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (u) => {
-      if (u) {
-        const userSnap = await getDoc(doc(firestore, COL.USERS, u.uid));
-        if (userSnap.exists()) {
-          setCurrentUser({ id: u.uid, uid: u.uid, ...userSnap.data() });
-        } else {
-          setCurrentUser(u);
-        }
-        setLoading(false);
-      } else {
-        router.push("/auth");
-      }
-    });
-    return unsub;
-  }, [router]);
-
-  useEffect(() => {
-    const q = query(collection(firestore, COL.GROUPS), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snap) => setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-  }, []);
-
-  useEffect(() => {
-    const currentId = currentUser?.uid || currentUser?.id;
-    if (!currentId) return;
-
+    if (!userData?.uid) return;
     const q = query(
-      collection(firestore, COL.GROUPS),
-      where("members", "array-contains", currentId)
+      collection(firestore, "groups"),
+      where("members", "array-contains", userData.uid)
     );
-
-    const unsubNodes = onSnapshot(q,
-      (snap) => {
-        setUserNodes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setLoadingNodes(false);
-      },
-      (error) => {
-        console.error("Nodes Sync Error:", error);
-        setLoadingNodes(false);
-      }
-    );
-
-    return () => unsubNodes();
-  }, [currentUser]);
-
-  const filtered = useMemo(() => {
-    return groups.filter(g => {
-      const currentId = currentUser?.uid || currentUser?.id;
-      const isNotMember = !g.members?.includes(currentId);
-
-      const matchesSearch = g.name?.toLowerCase().includes(search.toLowerCase()) ||
-        g.subject?.toLowerCase().includes(search.toLowerCase());
-
-      const groupYear = g.year || "L1"; // افتراض L1 إذا لم يحدد
-      const matchesYear = selectedYear === "All" || groupYear === selectedYear;
-
-      return isNotMember && matchesSearch && matchesYear;
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setMyGroups(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-  }, [groups, search, selectedYear, currentUser]);
+    return () => unsubscribe();
+  }, [userData?.uid]);
 
-  if (loading) return <div className="min-h-screen bg-[#050505] flex items-center justify-center"><TsswalLogo size={50} className="animate-pulse" /></div>;
+  // ─── 1. استبعاد مجموعات العضوية الحالية ───
+  const memberOfIds = useMemo(() => {
+    if (!userData?.uid) return new Set();
+    return new Set(
+      allGroups.filter((g) => g.members?.includes(userData.uid)).map((g) => g.id)
+    );
+  }, [allGroups, userData?.uid]);
+
+  // ─── 2. منطق الفلترة التراكمي ───
+  const filteredNodes = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return excludeIds(allGroups, memberOfIds).filter((node) => {
+      const okSearch =
+        !q ||
+        node.name?.toLowerCase().includes(q) ||
+        node.subject?.toLowerCase().includes(q) ||
+        node.major?.toLowerCase().includes(q);
+      return (
+        okSearch &&
+        matchesUniversity(node, filters.university) &&
+        matchesMajor(node, filters.major) &&
+        matchesLevel(node, filters.level)
+      );
+    });
+  }, [allGroups, memberOfIds, searchQuery, filters]);
+
+  // ─── 3. هل لا يوجد أي فلتر (لعرض الرفوف)؟ ───
+  const noFilters =
+    !searchQuery &&
+    filters.university === ALL &&
+    filters.major === ALL &&
+    filters.level === ALL;
+
+  const activeFilterCount =
+    (filters.university !== ALL ? 1 : 0) +
+    (filters.major !== ALL ? 1 : 0) +
+    (filters.level !== ALL ? 1 : 0);
+
+  // ─── 4. الرفوف الذكية ───
+  const majorMatched = useMemo(
+    () => (noFilters ? selectMajorMatched(filteredNodes, userData, 10) : []),
+    [filteredNodes, userData, noFilters]
+  );
+
+  const highFrequency = useMemo(() => {
+    if (!noFilters) return [];
+    const majorIds = new Set(majorMatched.map((n) => n.id));
+    return selectHighFrequency(excludeIds(filteredNodes, majorIds), 10);
+  }, [filteredNodes, majorMatched, noFilters]);
+
+  // ─── 5. شبكة الاستكشاف (ما تبقّى) ───
+  const gridNodes = useMemo(() => {
+    if (!noFilters) return filteredNodes;
+    const shelfIds = new Set([
+      ...majorMatched.map((n) => n.id),
+      ...highFrequency.map((n) => n.id),
+    ]);
+    return excludeIds(filteredNodes, shelfIds);
+  }, [filteredNodes, majorMatched, highFrequency, noFilters]);
+
+  const resetFilters = () => {
+    setFilters({ university: ALL, major: ALL, level: ALL });
+    setOpenDropdown(null);
+  };
+
+  if (authLoading || groupsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-cream dark:bg-black">
+        <Loader2 className="animate-spin" size={40} style={{ color: PURPLE }} />
+      </div>
+    );
+  }
 
   return (
-    <div dir="ltr" className="min-h-screen bg-[#050505] text-[#F9FAFB] flex overflow-hidden font-sans relative">
+    <div className="flex min-h-screen bg-cream dark:bg-black font-sans text-ink dark:text-white transition-colors duration-500 overflow-hidden">
+      <Sidebar currentUser={userData} groups={myGroups} />
 
-      <Sidebar currentUser={currentUser} />
-
-      <main className="flex-1 lg:ml-[280px] px-6 lg:px-14 py-12 flex flex-col xl:flex-row justify-between overflow-y-auto h-screen custom-scrollbar text-left relative z-10">
-
-        <div className="flex-1 max-w-[1000px] pb-20">
-          <header className="mb-12 flex items-end justify-between">
+      <main className="flex-1 lg:ms-[280px] h-screen overflow-hidden flex flex-col relative">
+        {/* ── Header ── */}
+        <header className="px-8 py-6 bg-cream/80 dark:bg-black/60 backdrop-blur-2xl border-b border-sand dark:border-white/5 z-30">
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
-              <h1 className="text-[48px] xl:text-[60px] font-serif font-black italic tracking-tighter leading-none text-white">Discovery.</h1>
-              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.4em] mt-4 italic">Nodes waiting for your signal</p>
+              <div className="flex items-center gap-3 mb-1">
+                <Compass size={24} style={{ color: PURPLE }} />
+                <h1 className="text-2xl font-bold font-display italic">{t("explore.title")}</h1>
+              </div>
+              <p className="text-xs text-ink-faint font-medium uppercase tracking-widest">
+                {t("explore.subtitle")}
+              </p>
             </div>
-            <div className="hidden sm:flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-brand-indigo bg-brand-indigo/10 px-4 py-2 rounded-full border border-brand-indigo/20 shadow-glow">
-              <Zap size={12} className="animate-pulse" /> Live Network
-            </div>
-          </header>
 
-          {/* شريط البحث المطور */}
-          <div className="relative group mb-10">
-            <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-brand-indigo transition-colors" size={18} />
-            <input
-              type="text"
-              placeholder="Search for academic sanctuaries..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full py-5 pl-14 pr-8 bg-[#0A0A0B] border border-white/5 rounded-2xl outline-none focus:border-brand-indigo/30 transition-all text-sm text-white italic font-serif shadow-premium"
-            />
+            {/* Search + Filter toggle */}
+            <div className="flex items-center gap-3 w-full max-w-md">
+              <div className="flex-1 flex items-center gap-4 bg-paper dark:bg-white/5 px-5 py-3 rounded-2xl border border-sand dark:border-white/10 shadow-sm">
+                <Search size={18} className="text-ink-faint" />
+                <input
+                  type="text"
+                  placeholder={t("explore.searchPlaceholder")}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-transparent outline-none text-sm w-full placeholder:text-ink-faint text-ink dark:text-white"
+                />
+              </div>
+              <button
+                onClick={() => setShowFilters((v) => !v)}
+                className="relative shrink-0 p-3.5 rounded-2xl border shadow-sm transition-all"
+                style={{
+                  backgroundColor: showFilters ? PURPLE : "transparent",
+                  borderColor: showFilters ? PURPLE : "rgb(var(--c-sand))",
+                  color: showFilters ? "#fff" : "rgb(var(--c-ink-faint))",
+                }}
+                aria-label={t("explore.allFields")}
+                title={t("explore.allFields")}
+              >
+                <SlidersHorizontal size={18} />
+                {activeFilterCount > 0 && !showFilters && (
+                  <span
+                    className="absolute -top-1.5 -end-1.5 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center text-white shadow-md"
+                    style={{ backgroundColor: PURPLE }}
+                  >
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
+        </header>
 
-          {/* ─── قسم الفلترة الجديد (Academic Stage) من الصورة ─── */}
-          <div className="mb-12 space-y-6">
-            <div className="flex items-center gap-2">
-              <LayoutGrid size={12} className="text-brand-indigo" />
-              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-700">Academic Stage</h3>
-            </div>
+        {/* ── Content ── */}
+        <div className="flex-1 overflow-y-auto hide-scrollbar p-8 lg:p-12">
+          <div className="max-w-6xl mx-auto">
 
-            <div className="flex flex-wrap gap-3">
-              {ACADEMIC_STAGES.map(stage => (
-                <button
-                  key={stage}
-                  onClick={() => setSelectedYear(stage)}
-                  className={`px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all border-none cursor-pointer ${selectedYear === stage
-                      ? "bg-brand-indigo text-white shadow-glow translate-y-[-2px]"
-                      : "bg-[#0A0A0B] text-slate-600 hover:bg-white/5 hover:text-slate-300"
-                    }`}
+            {/* ─── Collapsible Filter Card ─── */}
+            <AnimatePresence initial={false}>
+              {showFilters && (
+                <motion.div
+                  key="filter-card"
+                  initial={{ opacity: 0, y: -16, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: "auto" }}
+                  exit={{ opacity: 0, y: -16, height: 0 }}
+                  transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+                  className="overflow-visible mb-8"
                 >
-                  {stage}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* شبكة العقد */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <AnimatePresence mode="popLayout">
-              {filtered.length === 0 ? (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="col-span-full py-20 text-center text-slate-600">
-                  <p className="text-[12px] font-black uppercase tracking-[0.3em]">No nodes found for {selectedYear} stage.</p>
-                </motion.div>
-              ) : (
-                filtered.map((group) => {
-                  const Icon = ICON_MAP[group.icon] || BookOpen;
-                  return (
-                    <motion.div key={group.id} layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-[#0A0A0B] border border-white/5 rounded-[2.5rem] p-8 hover:border-brand-indigo/30 transition-all shadow-premium relative overflow-hidden group">
-                      <div className="flex justify-between mb-8 relative z-10 text-left">
-                        <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-brand-indigo border border-white/5 group-hover:scale-110 transition-transform"><Icon size={22} /></div>
-                        <div className="flex flex-col items-end gap-1.5">
-                          <span className="text-[8px] font-black uppercase bg-white/5 text-slate-500 px-3 py-1 rounded-full border border-white/5 flex items-center gap-1.5"><Lock size={10} /> Protocol Locked</span>
-                          <span className="text-[8px] font-black uppercase bg-brand-indigo/10 text-brand-indigo px-3 py-1 rounded-full border border-brand-indigo/20">{group.year || "General"}</span>
+                  <div
+                    className="bg-white dark:bg-white/[0.03] rounded-[2rem] p-7 border border-slate-100 dark:border-white/10 shadow-sm"
+                    style={{ borderColor: "rgba(124, 131, 242, 0.18)" }}
+                  >
+                    <div className="flex items-center justify-between mb-5">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-9 h-9 rounded-xl flex items-center justify-center"
+                          style={{ backgroundColor: `${PURPLE}15`, color: PURPLE }}
+                        >
+                          <SlidersHorizontal size={16} strokeWidth={2.5} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold font-serif italic text-slate-800 dark:text-white">
+                            {t("explore.allFields")}
+                          </h3>
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 mt-0.5">
+                            {filteredNodes.length} {filteredNodes.length === 1 ? t("academic.node") : t("academic.nodes")}
+                          </p>
                         </div>
                       </div>
-                      <h3 className="font-serif font-black italic text-2xl text-white mb-2 leading-tight truncate">{group.name}</h3>
-                      <div className="flex items-center gap-2 mb-6 text-slate-700 text-[9px] font-bold uppercase tracking-widest"><School size={12} /> {group.university || "University"}</div>
-                      <p className="text-xs text-slate-500 italic mb-8 line-clamp-2 leading-relaxed font-serif">{group.description}</p>
-                      <button onClick={() => setSelectedGroup(group)} className="w-full py-4 bg-white text-black rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-indigo hover:text-white transition-all border-none cursor-pointer shadow-glow">Request Sync</button>
-                    </motion.div>
-                  );
-                })
+                      {(activeFilterCount > 0 || searchQuery) && (
+                        <button
+                          onClick={() => { resetFilters(); setSearchQuery(""); }}
+                          className="flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border hover:text-white"
+                          style={{
+                            color: PURPLE,
+                            backgroundColor: `${PURPLE}10`,
+                            borderColor: `${PURPLE}30`,
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = PURPLE; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = `${PURPLE}10`; }}
+                        >
+                          <RotateCcw size={12} data-flip-rtl /> {t("common.retry")}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <FilterDropdown
+                        icon={School}
+                        label={t("groupsCreate.fieldLabel")}
+                        options={[ALL, ...UNIVERSITIES]}
+                        labelMap={UNIVERSITY_LABELS}
+                        selected={filters.university}
+                        isOpen={openDropdown === "university"}
+                        onToggle={() =>
+                          setOpenDropdown(openDropdown === "university" ? null : "university")
+                        }
+                        onSelect={(v) => {
+                          setFilters((f) => ({ ...f, university: v }));
+                          setOpenDropdown(null);
+                        }}
+                        allLabel={t("common.all")}
+                      />
+                      <FilterDropdown
+                        icon={Book}
+                        label={t("profile.major")}
+                        options={[ALL, ...MAJORS]}
+                        labelMap={MAJOR_LABELS}
+                        selected={filters.major}
+                        isOpen={openDropdown === "major"}
+                        onToggle={() =>
+                          setOpenDropdown(openDropdown === "major" ? null : "major")
+                        }
+                        onSelect={(v) => {
+                          setFilters((f) => ({ ...f, major: v }));
+                          setOpenDropdown(null);
+                        }}
+                        allLabel={t("common.all")}
+                      />
+                      <FilterDropdown
+                        icon={GraduationCap}
+                        label={t("profile.year")}
+                        options={[ALL, ...LEVELS]}
+                        selected={filters.level}
+                        isOpen={openDropdown === "level"}
+                        onToggle={() =>
+                          setOpenDropdown(openDropdown === "level" ? null : "level")
+                        }
+                        onSelect={(v) => {
+                          setFilters((f) => ({ ...f, level: v }));
+                          setOpenDropdown(null);
+                        }}
+                        allLabel={t("common.all")}
+                      />
+                    </div>
+                  </div>
+                </motion.div>
               )}
+            </AnimatePresence>
+
+            {/* ─── Hybrid Shelves (تظهر فقط عند صفر فلاتر) ─── */}
+            {noFilters && (
+              <>
+                <NodeShelf
+                  title={t("explore.myField")}
+                  subtitle={userData?.major || t("explore.myField")}
+                  icon={GraduationCap}
+                  nodes={majorMatched}
+                  onNodeClick={(node) => setSelectedNode(node)}
+                  onViewAll={() => setFilters((f) => ({ ...f, major: userData?.major || ALL }))}
+                  pendingGroupIds={pendingGroupIds}
+                />
+                <NodeShelf
+                  title={t("explore.trendingNodes")}
+                  subtitle={t("explore.recentlyAdded")}
+                  icon={Flame}
+                  nodes={highFrequency}
+                  onNodeClick={(node) => setSelectedNode(node)}
+                  onViewAll={() => setShowFilters(true)}
+                  pendingGroupIds={pendingGroupIds}
+                />
+              </>
+            )}
+
+            {/* ─── Discovery Grid ─── */}
+            <AnimatePresence mode="wait">
+              {gridNodes.length > 0 ? (
+                <motion.div
+                  key={`grid-${searchQuery}-${filters.university}-${filters.major}-${filters.level}`}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  {noFilters && (
+                    <div className="flex items-center gap-4 mb-6 mt-4">
+                      <div
+                        className="p-2 rounded-2xl"
+                        style={{ backgroundColor: `${PURPLE}15`, color: PURPLE }}
+                      >
+                        <LayoutGrid size={18} strokeWidth={2.5} />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold font-serif italic text-slate-800 dark:text-white leading-tight">
+                          {t("academic.nodes")}
+                        </h2>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mt-1">
+                          {t("explore.allFields")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <DiscoveryGrid
+                    nodes={gridNodes}
+                    onNodeClick={(node) => setSelectedNode(node)}
+                    pendingGroupIds={pendingGroupIds}
+                  />
+                </motion.div>
+              ) : filteredNodes.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="py-32 flex flex-col items-center text-center"
+                >
+                  <div
+                    className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
+                    style={{ backgroundColor: `${PURPLE}15`, color: PURPLE }}
+                  >
+                    <Sparkles size={32} />
+                  </div>
+                  <h3 className="text-xl font-display italic font-bold mb-2">{t("explore.noResults")}</h3>
+                  <p className="text-ink-faint text-sm max-w-xs mb-6">
+                    {t("explore.noResults")}
+                  </p>
+                  {(activeFilterCount > 0 || searchQuery) && (
+                    <button
+                      onClick={() => { resetFilters(); setSearchQuery(""); }}
+                      className="flex items-center gap-2 px-5 py-2.5 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg transition-all hover:brightness-110"
+                      style={{ backgroundColor: PURPLE, boxShadow: `0 10px 25px ${PURPLE}40` }}
+                    >
+                      <RotateCcw size={12} data-flip-rtl /> {t("common.retry")}
+                    </button>
+                  )}
+                </motion.div>
+              ) : null}
             </AnimatePresence>
           </div>
         </div>
 
-        {/* القائمة الجانبية اليمنى */}
-        <aside className="hidden xl:flex flex-col w-[320px] sticky top-10 h-fit ml-auto">
-          <ActiveNodesSidebar nodes={userNodes} currentUser={currentUser} loading={loadingNodes} />
-        </aside>
+        {/* Join Modal */}
+        {selectedNode && (
+          <JoinNodeModal
+            group={selectedNode}
+            isOpen={!!selectedNode}
+            onClose={() => setSelectedNode(null)}
+            isPending={pendingGroupIds.has(selectedNode.id)}
+            onRequestSent={refreshPending}
+          />
+        )}
       </main>
+    </div>
+  );
+}
 
-      <JoinNodeModal isOpen={!!selectedGroup} onClose={() => setSelectedGroup(null)} group={selectedGroup} currentUser={currentUser} />
+// ════════════════════════════════════════════════════════════════
+// FilterDropdown — منسدلة مفردة للفلتر
+// ════════════════════════════════════════════════════════════════
+function FilterDropdown({
+  icon: Icon, label, options, labelMap,
+  selected, isOpen, onToggle, onSelect, allLabel,
+}) {
+  const rootRef = useRef(null);
 
-      <style dangerouslySetInnerHTML={{
-        __html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.02); border-radius: 10px; }
-      `}} />
+  // إغلاق المنسدلة عند الضغط خارجها
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleClickOutside(e) {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        onToggle();
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, onToggle]);
+
+  const display = selected === ALL ? (allLabel || "All") : (labelMap?.[selected] || selected);
+  const isActive = selected !== ALL;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl border text-start transition-all"
+        style={{
+          backgroundColor: isActive ? `${PURPLE}10` : "rgb(var(--c-paper))",
+          borderColor: isActive ? `${PURPLE}40` : "rgb(var(--c-sand))",
+        }}
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+            style={{ backgroundColor: `${PURPLE}15`, color: PURPLE }}
+          >
+            <Icon size={14} strokeWidth={2.5} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 leading-tight">
+              {label}
+            </p>
+            <p
+              className="text-sm font-bold truncate mt-0.5"
+              style={{ color: isActive ? PURPLE : "rgb(var(--c-ink))" }}
+              title={selected}
+            >
+              {display}
+            </p>
+          </div>
+        </div>
+        <motion.div
+          animate={{ rotate: isOpen ? 180 : 0 }}
+          transition={{ duration: 0.2 }}
+          className="shrink-0"
+        >
+          <ChevronDown size={16} className="text-slate-400" />
+        </motion.div>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="absolute start-0 end-0 top-full mt-2 z-40 bg-white dark:bg-[#1a1a1c] rounded-2xl border shadow-2xl overflow-hidden"
+            style={{ borderColor: `${PURPLE}25` }}
+          >
+            <div className="max-h-[260px] overflow-y-auto custom-scrollbar py-2">
+              {options.map((opt) => {
+                const isSelected = opt === selected;
+                const optDisplay = opt === ALL ? (allLabel || "All") : (labelMap?.[opt] || opt);
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => onSelect(opt)}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-3 text-start text-sm transition-colors"
+                    style={{
+                      backgroundColor: isSelected ? `${PURPLE}10` : "transparent",
+                      color: isSelected ? PURPLE : "rgb(var(--c-ink))",
+                      fontWeight: isSelected ? 700 : 500,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) e.currentTarget.style.backgroundColor = `${PURPLE}08`;
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <span className="truncate" title={opt}>{optDisplay}</span>
+                    {isSelected && <Check size={14} className="shrink-0" style={{ color: PURPLE }} />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <style jsx>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: ${PURPLE}40; border-radius: 10px; }
+      `}</style>
     </div>
   );
 }

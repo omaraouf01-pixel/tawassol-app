@@ -1,29 +1,16 @@
 import { NextResponse } from "next/server";
-import { verifyAuth, verifyAdmin } from "./verifyAdmin";
-import { adminInitError } from "./firestore";
+import { adminAuth, db as adminDb } from "./firebaseAdmin"; // استدعاء ملف الأدمن الذي أصلحناه
 
 /**
  * ════════════════════════════════════════════════════════════════
- *  Wrappers d'authentification — TSSWAL
+ * Wrappers d'authentification — TAWASSOL
  * ════════════════════════════════════════════════════════════════
- *  But : éviter la répétition du code d'auth dans chaque route +
- *        attraper toutes les erreurs (plus de crash 500).
- *
- *  Avant (verbeux + risqué) :
- *    export async function GET(req, ctx) {
- *      const v = await verifyAuth(req);
- *      if (v.error) return NextResponse.json(...);
- *      try { ... } catch (e) { ... }
- *    }
- *
- *  Après (DRY + safe) :
- *    export const GET = withAuth(async (req, ctx, { uid, user }) => {
- *      // logique métier uniquement, le wrapper gère tout le reste
- *    });
+ * الهدف: توحيد نظام الحماية لجميع الـ APIs ومنع تكرار الكود.
+ * يتعامل هذا الملف مع (Token Verification) و (Error Handling).
  * ════════════════════════════════════════════════════════════════
  */
 
-/** Helpers de réponse standard */
+/** مساعدات الرد القياسية (JSON Helpers) */
 export function jsonOk(data = { ok: true }, status = 200) {
   return NextResponse.json(data, { status });
 }
@@ -31,7 +18,7 @@ export function jsonError(message, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-/** Timeout serveur — coupe toute route bloquée à 10s (évite spinners infinis). */
+/** مؤقت السيرفر - لمنع الطلبات المعلقة لأكثر من 10 ثوانٍ */
 const SERVER_TIMEOUT_MS = 10000;
 
 function withTimeout(promise, ms, label) {
@@ -49,93 +36,85 @@ function withTimeout(promise, ms, label) {
 }
 
 /**
- * Wrapper d'erreurs : enrobe un handler dans un try/catch global + timeout.
- * → Plus aucune route ne peut crasher avec un 500 silencieux ou rester pendue.
+ * ─── الأساس: معالج الأخطاء العالمي ───
  */
 export function withErrorHandling(handler, label = "API") {
   return async (req, ctx) => {
     const reqId = Math.random().toString(36).slice(2, 8);
 
-    // ── Fail-fast if Firebase Admin never initialized ──
-    if (adminInitError) {
-      console.error(`[${label}#${reqId}] Firebase Admin not initialized: ${adminInitError}`);
-      return jsonError(
-        "Server configuration error — Firebase Admin failed to initialize. Check server logs.",
-        503
-      );
-    }
-
     try {
       const result = await withTimeout(handler(req, ctx), SERVER_TIMEOUT_MS, label);
-      // Garde-fou ultime : si le handler oublie de return, on force une réponse
-      if (!result) {
-        console.warn(`[${label}#${reqId}] handler returned undefined — forcing 204`);
-        return new NextResponse(null, { status: 204 });
-      }
+      if (!result) return new NextResponse(null, { status: 204 });
       return result;
     } catch (e) {
       console.error(`[${label}#${reqId} ERROR]`, e);
 
-      // Cas spécial : Firestore composite index manquant
-      // → message clair avec lien pour créer l'index, au lieu d'un 500 obscur
-      if (e.code === 9 || e.code === "failed-precondition" ||
-          (e.message && e.message.includes("FAILED_PRECONDITION"))) {
-        const indexUrlMatch = e.message?.match(/https:\/\/console\.firebase\.google\.com[^\s]+/);
-        const url = indexUrlMatch ? indexUrlMatch[0] : null;
-        return jsonError(
-          "Firestore composite index manquant. " +
-          (url ? `Créez-le ici : ${url}` : "Voir terminal du serveur pour le lien."),
-          503
-        );
+      // التعامل مع أخطاء Firebase المحددة
+      if (e.code === "auth/id-token-expired") {
+        return jsonError("Token expired. Please login again.", 401);
       }
 
       const status = e.status || 500;
-      const msg = e.message || "Erreur serveur interne.";
+      const msg = e.message || "Internal Server Error.";
       return jsonError(msg, status);
     }
   };
 }
 
 /**
- * withAuth : exige un user authentifié (n'importe quel rôle).
- *
- *   export const GET = withAuth(async (req, ctx, auth) => {
- *     // auth = { uid, user, claims }
- *     return jsonOk({ hello: auth.user.fullName });
- *   });
+ * ─── withAuth: يتطلب مستخدم مسجل (أي رتبة) ───
  */
 export function withAuth(handler, label = "AUTH") {
   return withErrorHandling(async (req, ctx) => {
-    const v = await verifyAuth(req);
-    if (v.error) return jsonError(v.error, v.status);
-    return handler(req, ctx, { uid: v.uid, user: v.user, claims: v.claims });
+    try {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return jsonError("Authentication required (No Token)", 401);
+      }
+
+      const token = authHeader.split(" ")[1];
+      const decodedToken = await adminAuth.verifyIdToken(token);
+      const uid = decodedToken.uid;
+
+      // جلب بيانات المستخدم من Firestore لضمان وجود الحساب
+      const userDoc = await adminDb.collection("users").doc(uid).get();
+      if (!userDoc.exists) {
+        return jsonError("User record not found in database", 401);
+      }
+
+      const user = userDoc.data();
+
+      // تمرير البيانات للـ Handler الأصلي (uid, user, decodedToken)
+      return handler(req, ctx, { uid, user, decodedToken });
+    } catch (error) {
+      console.error("Auth Wrapper Error:", error.message);
+      return jsonError("Invalid or expired session", 401);
+    }
   }, label);
 }
 
 /**
- * withAdmin : exige un admin (claim ou role Firestore).
- *
- *   export const POST = withAdmin(async (req, ctx, auth) => { ... });
+ * ─── withAdmin: يتطلب صلاحيات الأدمن حصراً ───
  */
 export function withAdmin(handler, label = "ADMIN") {
-  return withErrorHandling(async (req, ctx) => {
-    const v = await verifyAdmin(req);
-    if (v.error) return jsonError(v.error, v.status);
-    return handler(req, ctx, { uid: v.uid, user: v.user, claims: v.claims });
+  return withAuth(async (req, ctx, auth) => {
+    // التحقق من الرتبة في Firestore
+    if (auth.user.role !== "admin") {
+      return jsonError("Admin privileges required", 403);
+    }
+    return handler(req, ctx, auth);
   }, label);
 }
 
 /**
- * withPublic : pas d'auth, juste le wrapper d'erreurs (plus de crash 500).
- *
- *   export const GET = withPublic(async (req) => { ... });
+ * ─── withPublic: للـ APIs العامة مع معالجة الأخطاء ───
  */
 export function withPublic(handler, label = "PUBLIC") {
   return withErrorHandling(handler, label);
 }
 
 /**
- * Parser JSON body sûr (renvoie {} si vide ou invalide au lieu de planter).
+ * ─── Parser JSON آمن ───
  */
 export async function safeJson(req) {
   try {

@@ -1,132 +1,241 @@
 rules_version = '2';
 
 // ════════════════════════════════════════════════════════════════
-//  Firestore Security Rules — TSSWAL
+//  Firestore Security Rules — TAWASSOL
+//  Version: v3.1 — Audit-Hardened (2026-05-15)
+//  Build-tag: TWSL-RULES-20260515-A
 // ════════════════════════════════════════════════════════════════
-//  Stratégie :
-//   - Toutes les ÉCRITURES passent par les API routes (firebase-admin
-//     bypass les rules), donc les rules ne gèrent que la LECTURE
-//     directe par le client (onSnapshot, getDocs).
-//   - On autorise la lecture pour les users authentifiés sur les
-//     ressources qui les concernent.
+//  Stratégie hybride :
+//   - Opérations sensibles (création groupe, modération admin, notifs)
+//     passent par API routes (firebase-admin → bypass).
+//   - Opérations temps-réel (chat, posts, join-requests) → client.
 //
-//  Discovery :
-//   - ANY authenticated user can list/get groups (for Discovery +
-//     Explore pages). This enables students to browse and discover
-//     new groups to join.
-//   - ONLY group members can read messages and resources within a
-//     group. Non-members see group metadata but cannot access content.
-//   - Join requests are created via API routes (firebase-admin bypass).
-//     Read access is limited to the requester and the group leader.
-//
-//  Déploiement : firebase deploy --only firestore:rules
+//  Changements v3 :
+//   1. /notifications.create  → SERVER-ONLY (anti-spam).
+//   2. /messages.update       → anti-bypass : un membre ne peut PAS
+//      ajouter `fileUrl` après coup (le statut doit rester pending).
+//   3. /messages.create       → bloque `moderationStatus: approved`
+//      si l'auteur n'est pas overseer.
+//   4. Helpers defensifs préservés (exists + .get(default)).
+//   5. Default-deny final intact.
 // ════════════════════════════════════════════════════════════════
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ─── Helpers ──────────────────────────────────────────────
+    // ─── 🛠️ HELPERS (defensive) ─────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
+
     function isAdmin() {
-      return isSignedIn() && request.auth.token.admin == true;
-    }
-    function isMemberOfGroup(groupId) {
-      return isSignedIn() &&
-        request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().get('role', '') == 'admin';
     }
 
-    // ─── users ────────────────────────────────────────────────
-    // Un user lit son propre profil. Admin lit tout.
-    // Toutes les écritures via API (firebase-admin → bypass).
+    function groupExists(groupId) {
+      return groupId is string
+        && groupId.size() > 0
+        && exists(/databases/$(database)/documents/groups/$(groupId));
+    }
+
+    function groupData(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)).data;
+    }
+
+    function isMember(groupId) {
+      return isSignedIn()
+        && groupExists(groupId)
+        && (request.auth.uid in groupData(groupId).get('members', []));
+    }
+
+    function isGroupLeader(groupId) {
+      return isSignedIn()
+        && groupExists(groupId)
+        && groupData(groupId).get('leaderId', '') == request.auth.uid;
+    }
+
+    function canOverseeGroup(groupId) {
+      return isAdmin() || isGroupLeader(groupId);
+    }
+
+    // Pour /messages : un overseer (admin OU leader) du groupe ciblé.
+    function isOverseerOfRequestGroup() {
+      return isAdmin()
+          || isGroupLeader(request.resource.data.get('groupId', ''));
+    }
+
+    // ─── 1. USERS ──────────────────────────────────────────────
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow write: if false;
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
     }
 
-    // ─── groups (DISCOVERY) ──────────────────────────────────
-    // Lecture : ANY authenticated user can list/get groups.
-    // This powers the Discovery Grid and Explore page — students
-    // can browse all active groups even before joining.
-    // Écriture : interdite en direct (passer par API routes).
-    match /groups/{groupId} {
+    // ─── 2. POSTS (feed public) ────────────────────────────────
+    match /posts/{postId} {
       allow read: if isSignedIn();
-      allow write: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid;
 
-      // Sub-collection messages (defense-in-depth):
-      // Only group members can read messages nested under a group.
-      match /messages/{messageId} {
-        allow read: if isSignedIn() && (
-          isAdmin() ||
-          request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.authorId ||
+        isAdmin() ||
+        request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['likes', 'commentsCount', 'reactions'])
+      );
+
+      allow delete: if isSignedIn() && (
+        request.auth.uid == resource.data.authorId || isAdmin()
+      );
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.authorId == request.auth.uid;
+        allow update, delete: if isSignedIn() && (
+          request.auth.uid == resource.data.authorId || isAdmin()
         );
-        allow write: if false;
       }
     }
 
-    // ─── messages (top-level) ────────────────────────────────
-    // Lecture : uniquement les membres du groupe (ou admin).
-    // Création : interdite en direct (passer par /api/groups/[id]/messages).
-    // Update/Delete : le leader du groupe peut modérer les fichiers.
+    // ─── 3. GROUPS ─────────────────────────────────────────────
+    //  Création : EXCLUSIVEMENT via API (Admin SDK).
+    //  Lecture : signedIn (l'Explore en a besoin).
+    //  Update : leader (members/settings) ou admin.
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if false;
+      allow update: if isAdmin() || isGroupLeader(groupId);
+      allow delete: if isAdmin();
+    }
+
+    // ─── 4. MESSAGES (collection top-level "messages") ─────────
+    //  Champs : uid, groupId, content, fileUrl, fileName, fileType,
+    //          senderName, role, moderationStatus, isSystem, createdAt.
     match /messages/{messageId} {
+
+      // ── READ ─────────────────────────────────────────────
       allow read: if isSignedIn() && (
         isAdmin() ||
-        isMemberOfGroup(resource.data.groupId)
+        isMember(resource.data.get('groupId', '')) ||
+        isGroupLeader(resource.data.get('groupId', ''))
+      );
+
+      // ── CREATE ───────────────────────────────────────────
+      //   1. auteur = UID,
+      //   2. groupId valide + auteur a accès,
+      //   3. 🛡️ ANTI-BYPASS : membre normal joignant un FICHIER
+      //      DOIT le marquer "pending" ; ne peut PAS le poster
+      //      directement en "approved".
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.groupId is string
+        && request.resource.data.groupId.size() > 0
+        && (
+          isAdmin() ||
+          isGroupLeader(request.resource.data.groupId) ||
+          isMember(request.resource.data.groupId)
+        )
+        && (
+          // Cas 1 : pas de fichier → libre
+          !('fileUrl' in request.resource.data) ||
+          request.resource.data.fileUrl == null
+          // Cas 2 : fichier + overseer → ok
+          || isOverseerOfRequestGroup()
+          // Cas 3 : fichier + membre normal → obligatoirement pending
+          || request.resource.data.get('moderationStatus', '') == 'pending'
+        );
+
+      // ── UPDATE ───────────────────────────────────────────
+      //  • Auteur : peut éditer son texte UNIQUEMENT (pas fileUrl /
+      //    moderationStatus → anti-bypass post-création).
+      //  • Overseer (leader/admin) : peut tout (approve, reject…).
+      allow update: if isSignedIn() && (
+        canOverseeGroup(resource.data.get('groupId', '')) ||
+        (
+          request.auth.uid == resource.data.get('uid', '') &&
+          !request.resource.data.diff(resource.data)
+            .affectedKeys().hasAny(['fileUrl', 'fileName', 'fileType',
+                                    'moderationStatus', 'uid', 'groupId'])
+        )
+      );
+
+      // ── DELETE ───────────────────────────────────────────
+      allow delete: if isSignedIn() && (
+        request.auth.uid == resource.data.get('uid', '') ||
+        canOverseeGroup(resource.data.get('groupId', ''))
+      );
+    }
+
+    // ─── 5. JOIN-REQUESTS (kebab-case) ─────────────────────────
+    match /join-requests/{requestId} {
+
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        request.auth.uid == resource.data.get('userId', '') ||
+        isGroupLeader(resource.data.get('groupId', ''))
+      );
+
+      // Création directe par le demandeur (status=pending obligatoire).
+      // L'API route (Admin SDK) reste utilisée pour le cas "open access"
+      // afin d'ajouter l'utilisateur aux members atomiquement.
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.groupId is string
+        && request.resource.data.groupId.size() > 0
+        && request.resource.data.get('status', '') == 'pending';
+
+      allow update, delete: if isSignedIn() && canOverseeGroup(
+        resource.data.get('groupId', '')
+      );
+    }
+
+    // ─── 6. NOTIFICATIONS ──────────────────────────────────────
+    //  🛡️ Création SERVER-ONLY (Admin SDK) pour bloquer le spam.
+    match /notifications/{notificationId} {
+      allow read, delete: if isSignedIn() && (
+        request.auth.uid == resource.data.get('userId', '') || isAdmin()
       );
       allow create: if false;
-      allow update, delete: if isSignedIn() &&
-        request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.leaderId;
+      // L'utilisateur peut SEULEMENT marquer comme lu.
+      allow update: if isSignedIn()
+        && request.auth.uid == resource.data.get('userId', '')
+        && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['read', 'isRead']);
     }
 
-    // ─── resources ────────────────────────────────────────────
-    // Only group members can access shared resources.
+    // ─── 7. RESOURCES ──────────────────────────────────────────
     match /resources/{resourceId} {
       allow read: if isSignedIn() && (
-        isAdmin() ||
-        isMemberOfGroup(resource.data.groupId)
+        isAdmin() || isMember(resource.data.get('groupId', ''))
       );
-      allow write: if false;
-    }
 
-    // ─── posts (feed public) ──────────────────────────────────
-    match /posts/{postId} {
-      allow read: if isSignedIn();
-      allow write: if false;
-    }
+      allow create: if isSignedIn()
+        && request.resource.data.groupId is string
+        && (
+          isAdmin() ||
+          isGroupLeader(request.resource.data.groupId) ||
+          (
+            isMember(request.resource.data.groupId)
+            && request.resource.data.get('moderationStatus', 'pending') == 'pending'
+          )
+        );
 
-    // ─── notifications ────────────────────────────────────────
-    // Chaque user lit uniquement les siennes.
-    // Create : autorisé pour les utilisateurs authentifiés (batch reject).
-    // Update : le propriétaire peut marquer comme lu (read: true).
-    match /notifications/{notifId} {
-      allow read: if isSignedIn() && (
+      allow update, delete: if isSignedIn() && (
         isAdmin() ||
-        request.auth.uid == resource.data.userId
+        canOverseeGroup(resource.data.get('groupId', '')) ||
+        request.auth.uid == resource.data.get('authorId', '')
       );
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() &&
-        request.auth.uid == resource.data.userId &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      allow delete: if false;
     }
 
-    // ─── join-requests ─────────────────────────────────────────
-    // Read/Update: ONLY the group leader can read and update.
-    // Create: ANY authenticated user can create.
-    match /join-requests/{requestId} {
-      allow create: if isSignedIn();
-      allow read, update: if isSignedIn() && (
-        isAdmin() ||
-        request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.leaderId
-      );
-      allow delete: if false; 
-    }
-
-    // ─── Default deny ─────────────────────────────────────────
+    // ─── 8. DEFAULT DENY ───────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }

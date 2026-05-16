@@ -54,6 +54,7 @@ function formatGroup(g) {
     members: g.members,
     questions: g.questions,
     rules: g.rules,
+    accessType: g.accessType || "protected",
     createdAt: g.createdAt,
     updatedAt: g.updatedAt,
   };
@@ -62,7 +63,7 @@ function formatGroup(g) {
 // POST /api/groups — créer un groupe
 export const POST = withAuth(async (req, _ctx, { uid, user }) => {
   const body = await safeJson(req);
-  const { name, subject, description, rules, tags, questions, maxMembers } = body;
+  const { name, subject, description, rules, tags, questions, maxMembers, accessType } = body;
   if (!name || !subject) return jsonError("Missing name or subject");
   if (!user) return jsonError("User not found", 404);
 
@@ -75,6 +76,7 @@ export const POST = withAuth(async (req, _ctx, { uid, user }) => {
       tags,
       questions,
       maxMembers,
+      accessType,
       leaderId: uid,
       leaderName: user.fullName,
       members: [uid],

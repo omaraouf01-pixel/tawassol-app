@@ -1,9 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // Firebase Client Config — TAWASSOL
 // ════════════════════════════════════════════════════════════════
-// Firebase is used for Authentication (client) + Firestore (real-time listeners).
-// All secure writes go through API routes that use firebase-admin.
-// ════════════════════════════════════════════════════════════════
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
@@ -14,6 +11,7 @@ import {
   getAuth,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage"; // 👈 استيراد خدمة التخزين للصور
 
 // ─── 1. Configuration ────────────────────────────────────────────
 const firebaseConfig = {
@@ -34,8 +32,7 @@ if (typeof window !== "undefined") {
   if (missing.length) {
     console.error(
       `[Firebase] ⛔ Missing REQUIRED env vars: ${missing.join(", ")}`,
-      "\n→ Ensure these are set in .env.local with the NEXT_PUBLIC_ prefix.",
-      "\n→ Restart `npm run dev` after editing .env.local."
+      "\n→ Ensure these are set in .env.local with the NEXT_PUBLIC_ prefix."
     );
   }
 }
@@ -44,10 +41,10 @@ if (typeof window !== "undefined") {
 let app;
 let auth;
 let firestore;
+let storage; // 👈 تعريف متغير التخزين
 
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
-  // Use multi-layer persistence for maximum reliability
   try {
     auth = initializeAuth(app, {
       persistence: [
@@ -57,7 +54,6 @@ if (!getApps().length) {
       ],
     });
   } catch (e) {
-    // initializeAuth throws if called twice in the same process (HMR)
     auth = getAuth(app);
   }
 } else {
@@ -65,6 +61,8 @@ if (!getApps().length) {
   auth = getAuth(app);
 }
 
+// تهيئة الخدمات
 firestore = getFirestore(app);
+storage = getStorage(app); // 👈 ربط خدمة التخزين بالتطبيق
 
-export { app, auth, firestore };
+export { app, auth, firestore, storage }; // 👈 تصدير storage لاستخدامه في الأونبوردينج

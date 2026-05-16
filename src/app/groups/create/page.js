@@ -1,225 +1,307 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, Book, Sparkles,
-  Users, Gavel, HelpCircle, Plus, X, Loader2, School, Search, Check, Layers
+  Plus, Shield, Hash, Loader2, ChevronLeft,
+  Send, Sparkles, School, Book, GraduationCap,
+  Search, X, Check, ArrowRight, ArrowLeft,
+  Zap, Lock
 } from "lucide-react";
 
-// ─── الاستيرادات من مكتباتك الخاصة ───
-import { auth, firestore } from "@/lib/firebase";
-import { addDoc, collection } from "firebase/firestore";
-import { COL, buildGroupDoc } from "@/lib/collections";
+// Firebase & Auth
+import { useAuth } from "@/lib/useAuth";
+import { api } from "@/lib/apiClient";
 
-// ─── القوائم المقترحة ───
-const UNIVERSITIES = [
-  "Université d'Oran 1 Ahmed Ben Bella",
-  "Université d'Oran 2 Mohamed Ben Ahmed",
-  "USTO-MB (Oran)",
-  "ESI (Algiers)",
-  "USTHB (Algiers)",
-  "Université de Tlemcen",
-];
+// Academic Data — Single Source of Truth
+import { UNIVERSITIES, MAJORS, LEVELS } from "@/lib/academicData";
 
-const SUBJECTS = [
-  "Computer Science",
-  "Artificial Intelligence",
-  "Cyber Security",
-  "Mathematics",
-  "Theoretical Physics",
-  "Architecture & Urbanism",
-  "General Medicine",
-  "Pharmacy",
-  "Civil Engineering",
-  "Economic Sciences"
-];
+// Components
+import TsswalLogo from "@/components/TsswalLogo";
+
+/* ─── مكون النافذة المنبثقة (Selection Modal) ─── */
+const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedValue }) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const filtered = options.filter(opt => opt.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md"
+        >
+          <motion.div
+            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
+            className="w-full max-w-md bg-[#F8F8F5] dark:bg-[#0a0a0b] border border-slate-200 dark:border-white/5 rounded-[2.5rem] p-8 shadow-2xl relative"
+          >
+            <button type="button" onClick={onClose} className="absolute top-8 right-8 text-slate-400 hover:text-[#7c83f2] transition-colors">
+              <X size={20} />
+            </button>
+            <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#7c83f2] mb-6">Select {title}</h2>
+
+            <div className="relative mb-6">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-4 pl-12 pr-4 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-[#7c83f2]/20 transition-all"
+              />
+            </div>
+
+            <div className="max-h-[250px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+              {filtered.map((opt) => (
+                <button
+                  key={opt} type="button" onClick={() => { onSelect(opt); onClose(); setSearchTerm(""); }}
+                  className={`w-full text-left p-4 rounded-xl text-sm font-semibold transition-all flex justify-between items-center ${selectedValue === opt
+                    ? "bg-[#7c83f2] text-white shadow-lg"
+                    : "bg-white dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"
+                    }`}
+                >
+                  {opt} {selectedValue === opt && <Check size={16} />}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
 
 export default function CreateGroupPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const { authLoading } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [modal, setModal] = useState({ open: false, type: "", title: "", options: [] });
 
-  // حالات التحكم في النوافذ المنبثقة
-  const [isUniModalOpen, setIsUniModalOpen] = useState(false);
-  const [isSubjModalOpen, setIsSubjModalOpen] = useState(false);
-  const [uniSearch, setUniSearch] = useState("");
-  const [subjSearch, setSubjSearch] = useState("");
-
-  const [formData, setFormData] = useState({
+  const [form, setForm] = useState({
     name: "",
-    subject: "", // الآن يتم اختياره من الـ Modal
-    university: "",
     description: "",
+    university: "",
+    major: "",
+    level: "",
     rules: "",
-    questions: [""],
-    academicYear: "L1",
+    questions: "",
+    accessType: "protected"
   });
 
-  // ─── منطق الحفظ في Firebase ───
-  const handleCreate = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!auth.currentUser) return;
-    if (!formData.university || !formData.subject) {
-      alert("Please select both University and Major.");
+    if (!form.name || !form.university || !form.major) {
+      alert("Please complete the required fields.");
       return;
     }
-    setLoading(true);
 
+    setIsSubmitting(true);
     try {
-      const filteredQuestions = formData.questions.filter(q => q.trim() !== "");
+      const isOpen = form.accessType === "open";
+      const payload = {
+        name: form.name.trim(),
+        subject: form.major,
+        description: form.description.trim() || `Study group for ${form.major}`,
+        rules: form.rules.trim() || "Academic integrity and respect.",
+        tags: [form.university, form.major, form.level].filter(Boolean),
+        questions: isOpen ? [] : form.questions.split("\n").map(q => q.trim()).filter(Boolean),
+        accessType: isOpen ? "open" : "protected",
+        maxMembers: 50
+      };
 
-      // بناء المستند باستخدام الـ Helper الخاص بك
-      const groupData = buildGroupDoc({
-        ...formData,
-        questions: filteredQuestions,
-        tags: [formData.academicYear, formData.subject, formData.university],
-        leaderId: auth.currentUser.uid,
-        leaderName: auth.currentUser.displayName || "Scholar",
+      const result = await api("/api/groups", {
+        method: "POST",
+        body: payload,
       });
 
-      // الإرسال لـ Firestore
-      await addDoc(collection(firestore, COL.GROUPS), groupData);
-      router.push(`/hub`);
+      if (result.id) {
+        router.push(`/hub/chat/${result.id}`);
+      }
     } catch (error) {
-      console.error("Firebase Error:", error);
-      alert("Error forging node: " + error.message);
+      console.error("Forge Error:", error);
+      alert(error.message || "Failed to forge node");
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  // ─── فلاتر البحث ───
-  const filteredUnis = UNIVERSITIES.filter(u => u.toLowerCase().includes(uniSearch.toLowerCase()));
-  const filteredSubjs = SUBJECTS.filter(s => s.toLowerCase().includes(subjSearch.toLowerCase()));
+  const pageBg = "bg-[#F8F8F5] dark:bg-[#0a0a0b] transition-colors duration-700";
+
+  if (authLoading) return null;
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center p-6 py-20 relative overflow-y-auto custom-scrollbar">
-
-      {/* ─── Modal: اختيار الجامعة ─── */}
-      <AnimatePresence>
-        {isUniModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsUniModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="w-full max-w-lg bg-[#0A0A0B] border border-white/10 rounded-[2.5rem] p-8 relative z-10 shadow-2xl">
-              <div className="flex items-center justify-between mb-8"><h3 className="text-[12px] font-black uppercase tracking-[0.3em]">Select University</h3><button onClick={() => setIsUniModalOpen(false)} className="bg-transparent border-none text-slate-500 cursor-pointer"><X size={20} /></button></div>
-              <div className="relative mb-6">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
-                <input autoFocus placeholder="Search Universities..." className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-12 pr-6 text-sm text-white outline-none focus:border-brand-indigo/30 transition-all" onChange={(e) => setUniSearch(e.target.value)} />
-              </div>
-              <div className="max-h-[300px] overflow-y-auto space-y-2 custom-scrollbar">
-                {filteredUnis.map((uni) => (
-                  <button key={uni} onClick={() => { setFormData({ ...formData, university: uni }); setIsUniModalOpen(false); }} className="w-full text-left px-6 py-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-brand-indigo/30 transition-all flex items-center justify-between cursor-pointer group">
-                    <span className={`text-[12px] font-bold ${formData.university === uni ? 'text-brand-indigo' : 'text-slate-400'}`}>{uni}</span>
-                    {formData.university === uni && <Check size={14} className="text-brand-indigo" />}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Modal: اختيار التخصص ─── */}
-      <AnimatePresence>
-        {isSubjModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSubjModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="w-full max-w-lg bg-[#0A0A0B] border border-white/10 rounded-[2.5rem] p-8 relative z-10 shadow-2xl">
-              <div className="flex items-center justify-between mb-8"><h3 className="text-[12px] font-black uppercase tracking-[0.3em]">Select Major</h3><button onClick={() => setIsSubjModalOpen(false)} className="bg-transparent border-none text-slate-500 cursor-pointer"><X size={20} /></button></div>
-              <div className="relative mb-6">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
-                <input autoFocus placeholder="Search Subjects..." className="w-full bg-white/5 border border-white/5 rounded-2xl py-4 pl-12 pr-6 text-sm text-white outline-none focus:border-brand-indigo/30 transition-all" onChange={(e) => setSubjSearch(e.target.value)} />
-              </div>
-              <div className="max-h-[300px] overflow-y-auto space-y-2 custom-scrollbar">
-                {filteredSubjs.map((subj) => (
-                  <button key={subj} onClick={() => { setFormData({ ...formData, subject: subj }); setIsSubjModalOpen(false); }} className="w-full text-left px-6 py-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-brand-indigo/30 transition-all flex items-center justify-between cursor-pointer group">
-                    <span className={`text-[12px] font-bold ${formData.subject === subj ? 'text-brand-indigo' : 'text-slate-400'}`}>{subj}</span>
-                    {formData.subject === subj && <Check size={14} className="text-brand-indigo" />}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* زر الرجوع */}
-      <button onClick={() => router.back()} className="fixed top-10 left-10 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 hover:text-white bg-transparent border-none cursor-pointer z-50"><ArrowLeft size={14} /> Back to Hub</button>
-
-      {/* الرأس */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-16">
-        <h1 className="text-[50px] xl:text-[64px] font-serif font-black italic tracking-tighter text-white">Forge Node.</h1>
-        <div className="flex items-center justify-center gap-3"><Sparkles size={14} className="text-brand-indigo" /><p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-500">Initialize A Collective Sanctuary</p></div>
-      </motion.div>
-
-      <motion.form onSubmit={handleCreate} className="w-full max-w-2xl bg-[#0A0A0B] border border-white/5 rounded-[2.5rem] p-10 shadow-premium space-y-16 mb-20">
-
-        {/* 1. Core Intelligence */}
-        <section className="space-y-8">
-          <div className="flex items-center gap-4 mb-6"><div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-brand-indigo"><Book size={18} /></div><h3 className="text-[11px] font-black uppercase tracking-[0.3em]">Core Intelligence</h3></div>
-          <div className="space-y-6">
-            <input required placeholder="Node Name" className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-6 py-5 text-[15px] outline-none focus:border-brand-indigo/30 text-white" onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
-            <textarea required placeholder="Node Objective..." className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-6 py-5 text-[14px] outline-none focus:border-brand-indigo/30 text-white min-h-[100px] resize-none" onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
-          </div>
-        </section>
-
-        {/* 2. Node Protocol & Questions (دمج لتقليل الطول) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-          <section className="space-y-6">
-            <div className="flex items-center gap-4"><Gavel size={16} className="text-brand-indigo" /><h3 className="text-[10px] font-black uppercase tracking-[0.2em]">Protocol</h3></div>
-            <textarea placeholder="Basic rules..." className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-4 py-4 text-[12px] outline-none text-white h-[120px] resize-none" onChange={(e) => setFormData({ ...formData, rules: e.target.value })} />
-          </section>
-          <section className="space-y-6">
-            <div className="flex items-center justify-between"><div className="flex items-center gap-4"><HelpCircle size={16} className="text-brand-indigo" /><h3 className="text-[10px] font-black uppercase tracking-[0.2em]">Questions</h3></div><button type="button" onClick={() => setFormData({ ...formData, questions: [...formData.questions, ""] })} className="p-1 bg-white/5 rounded border-none text-brand-indigo cursor-pointer"><Plus size={14} /></button></div>
-            <div className="space-y-3 max-h-[120px] overflow-y-auto custom-scrollbar">
-              {formData.questions.map((q, i) => (
-                <input key={i} placeholder={`Q#${i + 1}`} className="w-full bg-white/[0.02] border border-white/5 rounded-xl px-4 py-3 text-[11px] text-white outline-none" onChange={(e) => { const n = [...formData.questions]; n[i] = e.target.value; setFormData({ ...formData, questions: n }); }} />
-              ))}
+    <div className={`min-h-screen flex flex-col font-sans ${pageBg}`}>
+      <header className="max-w-[1360px] w-full mx-auto px-6 lg:px-10 py-6 flex justify-between items-center relative z-20 border-b border-slate-200/50 dark:border-white/5">
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => router.back()}
+            className="p-2 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 hover:text-[#7c83f2] transition-all shadow-sm"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-[12px] bg-[#7c83f2] flex items-center justify-center text-white shadow-lg shadow-[#7c83f2]/20">
+              <TsswalLogo size={20} />
             </div>
-          </section>
+            <span className="font-serif text-[18px] italic font-bold text-slate-800 dark:text-slate-100">Twassel</span>
+          </div>
         </div>
+      </header>
 
-        {/* 3. Academic Context (القسم المطلوب تعديله) */}
-        <section className="space-y-10 pt-8 border-t border-white/5">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-brand-indigo"><Users size={18} /></div>
-            <h3 className="text-[11px] font-black uppercase tracking-[0.3em]">Academic Context</h3>
-          </div>
+      <main className="flex-1 flex items-center justify-center px-6 py-12 relative">
+        <div className="w-full max-w-[650px]">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 sm:p-14 shadow-xl border border-slate-100 dark:border-slate-800"
+          >
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 text-slate-400 hover:text-[#7c83f2] mb-8 transition-colors text-[10px] font-bold uppercase tracking-[0.2em]"
+            >
+              <ChevronLeft size={14} /> Back
+            </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* اختيار التخصص (Subject) بنفس طريقة الجامعة */}
-            <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase tracking-widest text-slate-600 ml-2">Major / Discipline</label>
-              <button type="button" onClick={() => setIsSubjModalOpen(true)} className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-6 py-5 text-[13px] text-left flex items-center justify-between hover:border-brand-indigo/30 transition-all cursor-pointer">
-                <span className={formData.subject ? "text-white font-bold" : "text-slate-700"}>{formData.subject || "Select Major"}</span>
-                <Layers size={16} className="text-slate-700" />
+            <div className="mb-10">
+              <h1 className="font-serif text-4xl font-bold text-slate-800 dark:text-slate-50 mb-3 italic">Forge New Node.</h1>
+              <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">Design your academic cluster’s frequency and governance.</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-10">
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Node Identity (Name)</label>
+                  <input
+                    type="text" required placeholder="e.g. Theoretical Physics Group"
+                    className="w-full p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-sm outline-none focus:border-[#7c83f2] transition-all dark:text-white"
+                    value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Objective (Description)</label>
+                  <textarea
+                    placeholder="Briefly describe the node's mission..."
+                    className="w-full p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-sm outline-none focus:border-[#7c83f2] transition-all min-h-[100px] resize-none dark:text-white"
+                    value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Academic Sphere</label>
+                <div className="grid grid-cols-1 gap-4">
+                  {[
+                    { label: "University", val: form.university, opts: UNIVERSITIES, icon: School, type: "university" },
+                    { label: "Major / Specialty", val: form.major, opts: MAJORS, icon: Book, type: "major" },
+                    { label: "Academic Level", val: form.level, opts: LEVELS, icon: GraduationCap, type: "level" },
+                  ].map((f) => (
+                    <button
+                      key={f.label} type="button"
+                      onClick={() => setModal({ open: true, type: f.type, title: f.label, options: f.opts })}
+                      className="w-full flex items-center justify-between p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 hover:border-[#7c83f2] transition-all text-left group shadow-sm"
+                    >
+                      <div className="flex items-center gap-5">
+                        <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-white/5 text-slate-400 group-hover:text-[#7c83f2] transition-colors">
+                          <f.icon size={20} strokeWidth={1.5} />
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">{f.label}</p>
+                          <p className="text-[14px] font-bold text-slate-700 dark:text-slate-200 mt-0.5">{f.val || `Select ${f.label}...`}</p>
+                        </div>
+                      </div>
+                      <ArrowRight size={18} className="text-slate-300 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─── Access Protocol ─── */}
+              <div className="space-y-4">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Access Protocol</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {[
+                    {
+                      value: "open",
+                      icon: Zap,
+                      title: "Open Access",
+                      desc: "Scholars sync into the node instantly — no questions, no gate."
+                    },
+                    {
+                      value: "protected",
+                      icon: Lock,
+                      title: "Verified Access",
+                      desc: "Requires overseer review. Define questions to filter applicants."
+                    }
+                  ].map((opt) => {
+                    const active = form.accessType === opt.value;
+                    return (
+                      <button
+                        key={opt.value} type="button"
+                        onClick={() => setForm({ ...form, accessType: opt.value })}
+                        className={`text-left p-6 rounded-2xl border transition-all shadow-sm ${
+                          active
+                            ? "bg-[#7c83f2]/10 border-[#7c83f2] ring-2 ring-[#7c83f2]/20"
+                            : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 hover:border-[#7c83f2]/60"
+                        }`}
+                      >
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                          active
+                            ? "bg-[#7c83f2] text-white"
+                            : "bg-white dark:bg-slate-900 border border-slate-100 dark:border-white/5 text-slate-400"
+                        }`}>
+                          <opt.icon size={18} strokeWidth={1.8} />
+                        </div>
+                        <p className="font-serif italic text-[15px] font-bold text-slate-800 dark:text-slate-100">{opt.title}</p>
+                        <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5">{opt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <AnimatePresence initial={false}>
+                {form.accessType === "protected" && (
+                  <motion.div
+                    key="questions-field"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-5">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Governance (Questions - One per line)</label>
+                        <textarea
+                          placeholder="e.g. What is your student ID?&#10;What do you hope to learn here?"
+                          className="w-full p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-sm outline-none focus:border-[#7c83f2] transition-all min-h-[100px] resize-none dark:text-white"
+                          value={form.questions} onChange={e => setForm({ ...form, questions: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <button
+                disabled={isSubmitting || !form.name || !form.university || !form.major}
+                type="submit"
+                className="w-full py-6 bg-[#7c83f2] text-white rounded-[1.5rem] font-bold uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-[#7c83f2]/30 hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-4 disabled:opacity-40"
+              >
+                {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <><Sparkles size={18} /> Initialize Node</>}
               </button>
-            </div>
+            </form>
+          </motion.div>
+        </div>
+      </main>
 
-            <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase tracking-widest text-slate-600 ml-2">Sanctuary (University)</label>
-              <button type="button" onClick={() => setIsUniModalOpen(true)} className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-6 py-5 text-[13px] text-left flex items-center justify-between hover:border-brand-indigo/30 transition-all cursor-pointer">
-                <span className={formData.university ? "text-white font-bold" : "text-slate-700"}>{formData.university || "Select University"}</span>
-                <School size={16} className="text-slate-700" />
-              </button>
-            </div>
-          </div>
+      <SelectionModal
+        isOpen={modal.open} onClose={() => setModal({ ...modal, open: false })}
+        title={modal.title} options={modal.options} selectedValue={form[modal.type]}
+        onSelect={(val) => setForm({ ...form, [modal.type]: val })}
+      />
 
-          <div className="space-y-4">
-            <label className="text-[9px] font-black uppercase tracking-widest text-slate-600 ml-2">Academic Level</label>
-            <div className="grid grid-cols-5 gap-3">
-              {["L1", "L2", "L3", "M1", "M2"].map((year) => (
-                <button key={year} type="button" onClick={() => setFormData({ ...formData, academicYear: year })} className={`py-4 rounded-xl text-[10px] font-black border transition-all ${formData.academicYear === year ? "bg-brand-indigo border-brand-indigo text-white shadow-glow" : "bg-white/[0.02] border-white/5 text-slate-600 hover:border-white/10"}`}>{year}</button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <button type="submit" disabled={loading} className="w-full py-6 bg-white text-black rounded-full text-[12px] font-black uppercase tracking-[0.4em] shadow-glow hover:bg-brand-indigo hover:text-white transition-all duration-700 border-none cursor-pointer disabled:opacity-50">
-          {loading ? <Loader2 className="animate-spin mx-auto" size={20} /> : "Forge Node."}
-        </button>
-      </motion.form>
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(124, 131, 242, 0.2); border-radius: 10px; }
+      `}</style>
     </div>
   );
 }

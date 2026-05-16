@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -l \"\\\\\"server-only\\\\\"\\\\|server-only\" \"C:\\\\Users\\\\omara\\\\tawassol\\\\package.json\" \"C:\\\\Users\\\\omara\\\\tawassol\\\\package-lock.json\" 2>/dev/null | head -5)",
+      "PowerShell(npx -y firebase-tools@latest deploy --only firestore:rules)",
+      "Bash(dir /s /b src\\\\*.js)",
+      "Bash(findstr /v node_modules)",
+      "Bash(findstr /v \".next\")",
+      "Bash(findstr /i \"useJoin OverseerPanel ModerationPanel JoinNodeModal ResourcesSidebar NotificationCenter withAuth firebase.js join-requests\")",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\omara\\\\tawassol\\\\firestore.indexes.json\"\\)[0..3]; \"First 4 bytes: $\\($bytes -join ','\\)\"; \"Size: $\\(\\(Get-Item C:\\\\Users\\\\omara\\\\tawassol\\\\firestore.indexes.json\\).Length\\) bytes\")",
+      "Bash(npm install *)",
+      "PowerShell(npm install i18next react-i18next i18next-browser-languagedetector --save --prefix C:\\\\Users\\\\omara\\\\tawassol 2>&1)",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('C:/Users/omara/tawassol/src/app/hub/page.js','utf8'\\);console.log\\('ok'\\)\")"
+    ]
+  }
+}
