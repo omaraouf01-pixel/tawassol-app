@@ -12,7 +12,6 @@ import {
   collection, increment, serverTimestamp
 } from "firebase/firestore";
 import { COL } from "@/lib/collectionNames";
-import { useLanguage } from "@/lib/useLanguage";
 
 export default function ModerationPanel({
   showModeration,
@@ -22,15 +21,12 @@ export default function ModerationPanel({
   id,
   setToast
 }) {
-  const { t } = useLanguage();
   const [processingId, setProcessingId] = useState(null);
 
-  // --- Handle Join Request Decisions ---
   const handleJoinDecision = async (request, isApproved) => {
     setProcessingId(request.id);
     try {
       if (isApproved) {
-        // 1. Add user to group members array
         const groupRef = doc(firestore, COL.GROUPS, id);
         await updateDoc(groupRef, {
           members: arrayUnion(request.userId),
@@ -38,36 +34,32 @@ export default function ModerationPanel({
         });
       }
 
-      // 2. Update request status
       const requestRef = doc(firestore, COL.JOIN_REQUESTS, request.id);
       await updateDoc(requestRef, { status: isApproved ? "approved" : "rejected" });
 
-      setToast(isApproved ? t("chat.joinRequests.accepted") : t("chat.joinRequests.declined"));
+      setToast(isApproved ? "Accepted" : "Declined");
     } catch (err) {
       console.error(err);
-      setToast(t("chat.joinRequests.actionError"));
+      setToast("Could not perform action");
     } finally {
       setProcessingId(null);
     }
   };
 
-  // --- Handle File Verification Decisions ---
-  // ✳️ Les messages sont stockés en COLLECTION TOP-LEVEL "messages"
-  //    (cf. useChat.js + firestore.rules). Pas de sous-collection.
   const handleFileDecision = async (msgId, isApproved) => {
     setProcessingId(msgId);
     try {
       const msgRef = doc(firestore, COL.MESSAGES, msgId);
       if (isApproved) {
         await updateDoc(msgRef, { moderationStatus: "approved" });
-        setToast(t("chat.moderation.approved"));
+        setToast("Approved");
       } else {
         await deleteDoc(msgRef);
-        setToast(t("chat.moderation.rejected"));
+        setToast("Rejected");
       }
     } catch (err) {
       console.error(err);
-      setToast(t("chat.moderation.actionError"));
+      setToast("Could not perform action");
     } finally {
       setProcessingId(null);
     }
@@ -77,28 +69,25 @@ export default function ModerationPanel({
     <AnimatePresence>
       {showModeration && (
         <>
-          {/* Overlay */}
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={() => setShowModeration(false)}
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[180]"
           />
 
-          {/* Sidebar Panel */}
           <motion.aside
             initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
             className="fixed top-0 end-0 h-screen w-full sm:w-[450px] bg-[#050505] border-s border-white/10 z-[190] flex flex-col shadow-2xl"
           >
-            {/* Header */}
             <div className="p-8 border-b border-white/5 flex items-center justify-between bg-[#0A0A0B]">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-brand-indigo/10 rounded-xl flex items-center justify-center text-brand-indigo shadow-glow">
                   <ShieldCheck size={20} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-serif font-black italic text-white leading-none">{t("chat.moderation.title")}</h3>
-                  <p className="text-[7px] font-black uppercase text-slate-600 tracking-[0.3em] mt-2">{t("roles.overseer")}</p>
+                  <h3 className="text-lg font-serif font-black italic text-white leading-none">Moderation panel</h3>
+                  <p className="text-[7px] font-black uppercase text-slate-600 tracking-[0.3em] mt-2">Overseer</p>
                 </div>
               </div>
               <button onClick={() => setShowModeration(false)} className="p-2 bg-white/5 text-slate-500 hover:text-white rounded-xl border-none cursor-pointer transition-colors">
@@ -108,11 +97,10 @@ export default function ModerationPanel({
 
             <div className="flex-1 overflow-y-auto p-6 space-y-10 custom-scrollbar">
 
-              {/* Section 1: Scholar Join Requests */}
               <section>
                 <div className="flex items-center justify-between mb-6 px-2">
                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-indigo flex items-center gap-2">
-                    <UserCheck size={12} /> {t("chat.joinRequests.title")}
+                    <UserCheck size={12} /> Join requests
                   </h4>
                   <span className="bg-white/5 text-slate-500 text-[9px] px-2 py-0.5 rounded-full font-bold">{joinRequests.length}</span>
                 </div>
@@ -120,7 +108,7 @@ export default function ModerationPanel({
                 <div className="space-y-3">
                   <AnimatePresence mode="popLayout">
                     {joinRequests.length === 0 ? (
-                      <EmptyState key="empty-scholars" message={t("chat.joinRequests.empty")} />
+                      <EmptyState key="empty-scholars" message="No pending requests" />
                     ) : (
                       joinRequests.map((req) => (
                         <ModerationCard
@@ -137,11 +125,10 @@ export default function ModerationPanel({
                 </div>
               </section>
 
-              {/* Section 2: Asset (File) Verification */}
               <section>
                 <div className="flex items-center justify-between mb-6 px-2">
                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 flex items-center gap-2">
-                    <Zap size={12} /> {t("chat.moderation.pendingFiles")}
+                    <Zap size={12} /> Files awaiting review
                   </h4>
                   <span className="bg-white/5 text-slate-500 text-[9px] px-2 py-0.5 rounded-full font-bold">{pendingMessages.length}</span>
                 </div>
@@ -149,7 +136,7 @@ export default function ModerationPanel({
                 <div className="space-y-3">
                   <AnimatePresence mode="popLayout">
                     {pendingMessages.length === 0 ? (
-                      <EmptyState key="empty-assets" message={t("chat.moderation.noPending")} />
+                      <EmptyState key="empty-assets" message="No files awaiting review" />
                     ) : (
                       pendingMessages.map((msg) => (
                         <ModerationCard
@@ -180,7 +167,6 @@ export default function ModerationPanel({
   );
 }
 
-// --- Sub-Component: Moderation Card ---
 const ModerationCard = React.forwardRef(({ item, type, onAccept, onReject, isProcessing }, ref) => {
   const isScholar = type === "scholar";
 
@@ -231,7 +217,6 @@ const ModerationCard = React.forwardRef(({ item, type, onAccept, onReject, isPro
 });
 ModerationCard.displayName = "ModerationCard";
 
-// --- Sub-Component: EmptyState (Now with forwardRef) ---
 const EmptyState = React.forwardRef(({ message }, ref) => (
   <motion.div
     ref={ref}
@@ -244,4 +229,4 @@ const EmptyState = React.forwardRef(({ message }, ref) => (
     <p className="text-[9px] font-black uppercase tracking-widest">{message}</p>
   </motion.div>
 ));
-EmptyState.displayName = "EmptyState"; 
+EmptyState.displayName = "EmptyState";

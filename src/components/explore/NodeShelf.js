@@ -4,7 +4,6 @@ import React from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Users, ArrowRight, Sparkles, Clock } from "lucide-react";
-import { useLanguage } from "@/lib/useLanguage";
 
 /**
  * NodeShelf — شبكة عمودية متجاوبة لعرض المجموعات.
@@ -27,7 +26,6 @@ export default function NodeShelf({
   accent = "#7c83f2",
   pendingGroupIds,
 }) {
-  const { t } = useLanguage();
   if (!nodes || nodes.length === 0) return null;
 
   return (
@@ -57,7 +55,7 @@ export default function NodeShelf({
 
         <div className="flex items-center gap-3 shrink-0">
           <span className="hidden sm:inline text-[10px] font-black uppercase tracking-widest text-slate-400">
-            {t("explore.showingNodes", { count: nodes.length })}
+            {`Showing ${nodes.length} nodes`}
           </span>
 
           {onViewAll && (
@@ -77,7 +75,7 @@ export default function NodeShelf({
                 e.currentTarget.style.backgroundColor = `${accent}10`;
               }}
             >
-              {t("explore.viewAll")}
+              View all
               <ArrowRight size={11} data-flip-rtl />
             </button>
           )}
@@ -104,7 +102,6 @@ export default function NodeShelf({
 // ─── بطاقة مدمجة (Compact Card) — تأخذ عرض العمود بالكامل ────────
 function CompactNodeCard({ node, onClick, accent, delay = 0, isPending = false }) {
   const router = useRouter();
-  const { t } = useLanguage();
 
   return (
     <motion.button
@@ -138,7 +135,7 @@ function CompactNodeCard({ node, onClick, accent, delay = 0, isPending = false }
             borderColor: `${accent}25`,
           }}
         >
-          {node.level || t("academic.academicNode")}
+          {node.level || "Academic Node"}
         </span>
       </div>
 
@@ -147,7 +144,7 @@ function CompactNodeCard({ node, onClick, accent, delay = 0, isPending = false }
         {node.name}
       </h3>
       <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 mb-4 line-clamp-1">
-        {node.subject || node.major || t("profile.major")}
+        {node.subject || node.major || "Major"}
       </p>
 
       {/* Footer */}
@@ -163,14 +160,14 @@ function CompactNodeCard({ node, onClick, accent, delay = 0, isPending = false }
             className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest"
             style={{ color: accent }}
           >
-            <Clock size={12} /> {t("explore.pending")}
+            <Clock size={12} /> Pending…
           </div>
         ) : (
           <div
             className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest opacity-60 group-hover:opacity-100 transition-opacity"
             style={{ color: accent }}
           >
-            {t("explore.joinNode")}{" "}
+            Join{" "}
             <ArrowRight
               size={12}
               data-flip-rtl

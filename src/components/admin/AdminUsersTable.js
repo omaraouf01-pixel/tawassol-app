@@ -28,7 +28,7 @@ export default function AdminUsersTable({ users, onViewID }) {
                             <td className="px-8 py-5">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-500 overflow-hidden">
-                                        {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" /> : u.fullName[0]}
+                                        {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" /> : (u.fullName?.[0]?.toUpperCase() || "?")}
                                     </div>
                                     <div>
                                         <p className="font-bold text-slate-800 dark:text-slate-100">{u.fullName}</p>

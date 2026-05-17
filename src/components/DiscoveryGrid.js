@@ -8,12 +8,10 @@ import {
   ShieldCheck, ArrowRight, Sparkles, Zap, Clock
 } from "lucide-react";
 import { useAuth } from "@/lib/useAuth";
-import { useLanguage } from "@/lib/useLanguage";
 
 export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
   const router = useRouter();
   const { userData } = useAuth();
-  const { t } = useLanguage();
 
   // مصفوفة الحركات للأنيميشن (Stagger Effect)
   const container = {
@@ -53,11 +51,11 @@ export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
               </div>
               <div className="flex flex-col items-end gap-2">
                 <span className="px-4 py-1.5 bg-[#F8F8F5] dark:bg-black/20 text-slate-500 dark:text-slate-400 rounded-full text-[9px] font-black uppercase tracking-[0.2em] border border-slate-200 dark:border-white/5">
-                  {node.level || t("academic.academicNode")}
+                  {node.level || "Academic Node"}
                 </span>
                 {isAdmin && (
                   <div className="flex items-center gap-1 text-[8px] font-black text-[#7c83f2] uppercase tracking-widest animate-pulse">
-                    <ShieldCheck size={10} /> {t("roles.admin")}
+                    <ShieldCheck size={10} /> Admin
                   </div>
                 )}
               </div>
@@ -70,10 +68,10 @@ export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
               </h3>
               <p className="text-[11px] font-black text-[#7c83f2] uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                 <GraduationCap size={14} strokeWidth={2.5} />
-                {node.subject || node.major || t("profile.major")}
+                {node.subject || node.major || "Major"}
               </p>
               <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed mb-6 font-medium italic font-serif">
-                {node.description || t("groupsCreate.descPlaceholder")}
+                {node.description || "What will you discuss in this node?"}
               </p>
             </div>
 
@@ -82,7 +80,7 @@ export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
               <div className="flex items-center gap-2 text-slate-400">
                 <Users size={16} className="text-[#7c83f2]/40" />
                 <span className="text-[10px] font-black uppercase tracking-widest">
-                  {node.memberCount || 1} {t("roles.scholars")}
+                  {node.memberCount || 1} Scholars
                 </span>
               </div>
 
@@ -95,15 +93,15 @@ export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
                     }}
                     className="flex items-center gap-2 px-6 py-3 bg-[#7c83f2] text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg shadow-[#7c83f2]/20 hover:brightness-110 active:scale-95 transition-all"
                   >
-                    <Zap size={14} fill="currentColor" /> {t("common.open")}
+                    <Zap size={14} fill="currentColor" /> Open
                   </button>
                 ) : isPending ? (
                   <button
                     disabled
                     className="flex items-center gap-2 px-6 py-3 bg-[#7c83f2]/10 border border-[#7c83f2]/30 text-[#7c83f2] rounded-full text-[10px] font-black uppercase tracking-widest cursor-not-allowed"
-                    title={t("explore.pendingRequest")}
+                    title="Your request is pending"
                   >
-                    <Clock size={14} /> {t("explore.pending")}
+                    <Clock size={14} /> Pending…
                   </button>
                 ) : (
                   <button
@@ -113,7 +111,7 @@ export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
                     }}
                     className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-white rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-[#7c83f2] hover:text-white hover:border-[#7c83f2] transition-all group/btn shadow-sm"
                   >
-                    {t("explore.joinNode")} <ArrowRight size={14} data-flip-rtl className="group-hover/btn:translate-x-1 transition-transform" />
+                    Join <ArrowRight size={14} data-flip-rtl className="group-hover/btn:translate-x-1 transition-transform" />
                   </button>
                 )}
               </div>
@@ -131,7 +129,7 @@ export default function DiscoveryGrid({ nodes, onNodeClick, pendingGroupIds }) {
       {nodes.length === 0 && (
         <div className="col-span-full py-32 flex flex-col items-center justify-center text-center opacity-30">
           <BookOpen size={48} className="mb-4 text-slate-400" strokeWidth={1} />
-          <p className="font-serif italic text-lg text-slate-500">{t("explore.noResults")}</p>
+          <p className="font-serif italic text-lg text-slate-500">No results</p>
         </div>
       )}
     </motion.div>

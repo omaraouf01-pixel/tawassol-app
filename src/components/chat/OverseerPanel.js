@@ -14,24 +14,14 @@ import {
 import { firestore as db, auth } from "@/lib/firebase";
 import { COL } from "@/lib/collectionNames";
 import { useJoinRequests } from "@/lib/useJoinRequests";
-import { useLanguage } from "@/lib/useLanguage";
-
-// ════════════════════════════════════════════════════════════════
-// OverseerPanel — لوحة تحكم المشرف داخل الشات
-// زر إدارة + لوحة جانبية بثلاث تبويبات (طلبات، ملفات، إعدادات)
-// الهوية: كريمي #F8F8F5 — أرجواني #7c83f2 — Serif Italic للعناوين
-// ════════════════════════════════════════════════════════════════
 
 export default function OverseerPanel({ groupId, group, isLeader }) {
-  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("requests");
   const [toast, setToast] = useState("");
 
-  // ── طلبات الانضمام (لحظي) ─────────────────────────────────
   const { requests: joinRequests } = useJoinRequests(groupId, isLeader);
 
-  // ── الملفات المعلقة في رسائل المجموعة (لحظي) ──────────────
   const [pendingFiles, setPendingFiles] = useState([]);
   useEffect(() => {
     if (!groupId || !isLeader) {
@@ -54,7 +44,6 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
 
   const pendingCount = joinRequests.length + pendingFiles.length;
 
-  // ── تنبيه عابر ────────────────────────────────────────────
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 2400);
@@ -65,12 +54,11 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
 
   return (
     <>
-      {/* ─── الزر العائم (Trigger) ─── */}
       <button
         onClick={() => setOpen(true)}
         className="relative p-2 text-ink-faint hover:text-accent hover:bg-accent-soft rounded-xl transition-all"
-        title={t("chat.moderation.title")}
-        aria-label={t("chat.moderation.title")}
+        title="Moderation panel"
+        aria-label="Moderation panel"
       >
         <Shield size={18} />
         <AnimatePresence>
@@ -89,7 +77,6 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
         </AnimatePresence>
       </button>
 
-      {/* ─── اللوحة الجانبية ─── */}
       <AnimatePresence>
         {open && (
           <>
@@ -108,14 +95,13 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
               className="fixed top-0 end-0 h-screen w-full sm:w-[460px] bg-cream dark:bg-paper border-s border-sand z-[190] flex flex-col shadow-warm"
               style={{ backgroundColor: "rgb(var(--c-cream))" }}
             >
-              <PanelHeader group={group} onClose={() => setOpen(false)} t={t} />
+              <PanelHeader group={group} onClose={() => setOpen(false)} />
 
               <Tabs
                 tab={tab}
                 setTab={setTab}
                 joinCount={joinRequests.length}
                 fileCount={pendingFiles.length}
-                t={t}
               />
 
               <div className="flex-1 overflow-y-auto p-6">
@@ -124,25 +110,23 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
                     groupId={groupId}
                     requests={joinRequests}
                     setToast={setToast}
-                    t={t}
                   />
                 )}
                 {tab === "files" && (
-                  <FilesTab files={pendingFiles} setToast={setToast} t={t} />
+                  <FilesTab files={pendingFiles} setToast={setToast} />
                 )}
                 {tab === "settings" && (
-                  <SettingsTab group={group} setToast={setToast} t={t} />
+                  <SettingsTab group={group} setToast={setToast} />
                 )}
               </div>
 
               <div className="px-6 py-3 border-t border-sand bg-paper/60 text-center">
                 <p className="text-[8px] font-black text-ink-faint uppercase tracking-[0.25em]">
-                  {t("roles.overseer")} · {group?.name}
+                  Overseer · {group?.name}
                 </p>
               </div>
             </motion.aside>
 
-            {/* Toast */}
             <AnimatePresence>
               {toast && (
                 <motion.div
@@ -162,10 +146,7 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════
-// Header
-// ════════════════════════════════════════════════════════════════
-function PanelHeader({ group, onClose, t }) {
+function PanelHeader({ group, onClose }) {
   return (
     <div className="px-6 py-5 border-b border-sand bg-paper flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -174,16 +155,16 @@ function PanelHeader({ group, onClose, t }) {
         </div>
         <div>
           <h3 className="text-lg font-display italic font-bold text-ink leading-none">
-            {t("chat.moderation.title")}
+            Moderation panel
           </h3>
           <p className="text-[8px] font-black uppercase text-ink-faint tracking-[0.28em] mt-2">
-            {t("roles.overseer")}
+            Overseer
           </p>
         </div>
       </div>
       <button
         onClick={onClose}
-        aria-label={t("common.close")}
+        aria-label="Close"
         className="p-2 text-ink-faint hover:text-ink bg-sand/40 hover:bg-sand rounded-xl transition-all"
       >
         <X size={18} />
@@ -192,14 +173,11 @@ function PanelHeader({ group, onClose, t }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════
-// Tabs
-// ════════════════════════════════════════════════════════════════
-function Tabs({ tab, setTab, joinCount, fileCount, t }) {
+function Tabs({ tab, setTab, joinCount, fileCount }) {
   const items = [
-    { key: "requests", label: t("chat.joinRequests.title"), icon: UserCheck, count: joinCount },
-    { key: "files",    label: t("chat.resources.title"),    icon: FileCheck2, count: fileCount },
-    { key: "settings", label: t("chat.settings.title"),     icon: Settings, count: 0 },
+    { key: "requests", label: "Join requests", icon: UserCheck, count: joinCount },
+    { key: "files",    label: "Node resources", icon: FileCheck2, count: fileCount },
+    { key: "settings", label: "Node settings",  icon: Settings, count: 0 },
   ];
   return (
     <div className="px-4 pt-4 bg-paper border-b border-sand">
@@ -237,10 +215,7 @@ function Tabs({ tab, setTab, joinCount, fileCount, t }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════
-// Tab 1 — Join Requests
-// ════════════════════════════════════════════════════════════════
-function JoinRequestsTab({ groupId, requests, setToast, t }) {
+function JoinRequestsTab({ groupId, requests, setToast }) {
   const [busyId, setBusyId] = useState(null);
 
   const decide = async (req, approve) => {
@@ -253,17 +228,15 @@ function JoinRequestsTab({ groupId, requests, setToast, t }) {
           memberCount: increment(1),
         });
 
-        // Welcome system message — uses the overseer's real UID so the rule
-        //   request.auth.uid == resource.data.uid
-        // is satisfied. Marked isSystem so the chat renders it as a pill.
         const overseerUid = auth?.currentUser?.uid;
         if (overseerUid) {
+          const memberName = req.userName || "Anonymous";
           await addDoc(collection(db, COL.MESSAGES), {
             groupId,
             uid: overseerUid,
             role: "overseer",
             senderName: "Node Protocol",
-            content: t("chat.system.memberJoined", { name: req.userName || t("common.anonymous") }),
+            content: `${memberName} joined the node`,
             isSystem: true,
             moderationStatus: "approved",
             createdAt: serverTimestamp(),
@@ -272,17 +245,17 @@ function JoinRequestsTab({ groupId, requests, setToast, t }) {
       }
       const reqRef = doc(db, COL.JOIN_REQUESTS, req.id);
       await updateDoc(reqRef, { status: approve ? "approved" : "rejected" });
-      setToast(approve ? t("chat.joinRequests.accepted") : t("chat.joinRequests.declined"));
+      setToast(approve ? "Accepted" : "Declined");
     } catch (e) {
       console.error(e);
-      setToast(t("chat.joinRequests.actionError"));
+      setToast("Could not perform action");
     } finally {
       setBusyId(null);
     }
   };
 
   if (!requests.length) {
-    return <EmptyState icon={UserCheck} message={t("chat.joinRequests.empty")} />;
+    return <EmptyState icon={UserCheck} message="No pending requests" />;
   }
 
   return (
@@ -300,7 +273,7 @@ function JoinRequestsTab({ groupId, requests, setToast, t }) {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-ink italic font-display truncate">
-                  {req.userName || t("common.anonymous")}
+                  {req.userName || "Anonymous"}
                 </p>
                 {req.matricule && (
                   <p className="text-[10px] text-ink-faint font-mono mt-0.5">
@@ -313,8 +286,8 @@ function JoinRequestsTab({ groupId, requests, setToast, t }) {
                   onClick={() => decide(req, false)}
                   disabled={busyId === req.id}
                   className="p-2 bg-sand/40 text-ink-faint hover:bg-ink hover:text-cream rounded-lg transition-all disabled:opacity-50"
-                  title={t("chat.joinRequests.decline")}
-                  aria-label={t("chat.joinRequests.decline")}
+                  title="Decline"
+                  aria-label="Decline"
                 >
                   {busyId === req.id
                     ? <Loader2 size={14} className="animate-spin" />
@@ -324,8 +297,8 @@ function JoinRequestsTab({ groupId, requests, setToast, t }) {
                   onClick={() => decide(req, true)}
                   disabled={busyId === req.id}
                   className="p-2 bg-accent-soft text-accent hover:bg-accent hover:text-white rounded-lg transition-all disabled:opacity-50"
-                  title={t("chat.joinRequests.accept")}
-                  aria-label={t("chat.joinRequests.accept")}
+                  title="Accept"
+                  aria-label="Accept"
                 >
                   {busyId === req.id
                     ? <Loader2 size={14} className="animate-spin" />
@@ -352,10 +325,7 @@ function JoinRequestsTab({ groupId, requests, setToast, t }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════
-// Tab 2 — File / Resource Approval
-// ════════════════════════════════════════════════════════════════
-function FilesTab({ files, setToast, t }) {
+function FilesTab({ files, setToast }) {
   const [busyId, setBusyId] = useState(null);
 
   const decide = async (msg, approve) => {
@@ -364,21 +334,21 @@ function FilesTab({ files, setToast, t }) {
       const ref = doc(db, COL.MESSAGES, msg.id);
       if (approve) {
         await updateDoc(ref, { moderationStatus: "approved" });
-        setToast(t("chat.moderation.approved"));
+        setToast("Approved");
       } else {
         await deleteDoc(ref);
-        setToast(t("chat.moderation.rejected"));
+        setToast("Rejected");
       }
     } catch (e) {
       console.error(e);
-      setToast(t("chat.moderation.actionError"));
+      setToast("Could not perform action");
     } finally {
       setBusyId(null);
     }
   };
 
   if (!files.length) {
-    return <EmptyState icon={FileCheck2} message={t("chat.moderation.noPending")} />;
+    return <EmptyState icon={FileCheck2} message="No files awaiting review" />;
   }
 
   return (
@@ -400,10 +370,10 @@ function FilesTab({ files, setToast, t }) {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-ink truncate">
-                    {msg.fileName || t("common.untitled")}
+                    {msg.fileName || "Untitled Node"}
                   </p>
                   <p className="text-[10px] text-ink-faint italic font-serif mt-0.5 truncate">
-                    {msg.senderName || msg.authorName || t("common.anonymous")}
+                    {msg.senderName || msg.authorName || "Anonymous"}
                   </p>
                 </div>
               </div>
@@ -413,8 +383,8 @@ function FilesTab({ files, setToast, t }) {
                   onClick={() => decide(msg, false)}
                   disabled={busyId === msg.id}
                   className="p-2 bg-sand/40 text-ink-faint hover:bg-ink hover:text-cream rounded-lg transition-all disabled:opacity-50"
-                  title={t("chat.moderation.reject")}
-                  aria-label={t("chat.moderation.reject")}
+                  title="Reject"
+                  aria-label="Reject"
                 >
                   {busyId === msg.id
                     ? <Loader2 size={14} className="animate-spin" />
@@ -424,8 +394,8 @@ function FilesTab({ files, setToast, t }) {
                   onClick={() => decide(msg, true)}
                   disabled={busyId === msg.id}
                   className="p-2 bg-accent-soft text-accent hover:bg-accent hover:text-white rounded-lg transition-all disabled:opacity-50"
-                  title={t("chat.moderation.approve")}
-                  aria-label={t("chat.moderation.approve")}
+                  title="Approve"
+                  aria-label="Approve"
                 >
                   {busyId === msg.id
                     ? <Loader2 size={14} className="animate-spin" />
@@ -446,10 +416,7 @@ function FilesTab({ files, setToast, t }) {
   );
 }
 
-// ════════════════════════════════════════════════════════════════
-// Tab 3 — Node Settings
-// ════════════════════════════════════════════════════════════════
-function SettingsTab({ group, setToast, t }) {
+function SettingsTab({ group, setToast }) {
   const [form, setForm] = useState({
     name: group?.name || "",
     description: group?.description || "",
@@ -480,10 +447,10 @@ function SettingsTab({ group, setToast, t }) {
         rules: form.rules,
         accessType: form.accessType === "protected" ? "protected" : "open",
       });
-      setToast(t("chat.settings.saved"));
+      setToast("Saved");
     } catch (e) {
       console.error(e);
-      setToast(t("chat.settings.saveError"));
+      setToast("Could not save");
     } finally {
       setSaving(false);
     }
@@ -491,7 +458,7 @@ function SettingsTab({ group, setToast, t }) {
 
   return (
     <form onSubmit={save} className="space-y-6">
-      <Field icon={Edit3} label={t("chat.settings.nameLabel")}>
+      <Field icon={Edit3} label="Node name">
         <input
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -499,44 +466,44 @@ function SettingsTab({ group, setToast, t }) {
         />
       </Field>
 
-      <Field icon={Info} label={t("chat.settings.descLabel")}>
+      <Field icon={Info} label="Node description">
         <textarea
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           rows={4}
-          placeholder={t("groupsCreate.descPlaceholder")}
+          placeholder="What will you discuss in this node?"
           className="w-full bg-paper border border-sand rounded-xl py-3 px-4 text-ink text-sm outline-none focus:border-accent transition-all italic font-serif resize-none"
         />
       </Field>
 
-      <Field icon={Lock} label={t("chat.settings.title")}>
+      <Field icon={Lock} label="Node settings">
         <textarea
           value={form.rules}
           onChange={(e) => setForm({ ...form, rules: e.target.value })}
           rows={3}
-          placeholder={t("groupsCreate.descPlaceholder")}
+          placeholder="What will you discuss in this node?"
           className="w-full bg-accent-soft/50 border border-accent/15 rounded-xl py-3 px-4 text-ink text-sm outline-none focus:border-accent transition-all italic font-serif resize-none"
         />
       </Field>
 
       <div className="space-y-3">
         <label className="text-[9px] font-black uppercase text-ink-faint tracking-[0.2em] flex items-center gap-2">
-          <Shield size={11} /> {t("groupsCreate.visibilityLabel")}
+          <Shield size={11} /> Visibility
         </label>
         <div className="grid grid-cols-2 gap-3">
           <AccessOption
             active={form.accessType === "open"}
             onClick={() => setForm({ ...form, accessType: "open" })}
             icon={Globe}
-            title={t("privacy.public")}
-            sub={t("groupsCreate.visibilityPublic")}
+            title="Public"
+            sub="Public — any scholar can join"
           />
           <AccessOption
             active={form.accessType === "protected"}
             onClick={() => setForm({ ...form, accessType: "protected" })}
             icon={KeyRound}
-            title={t("privacy.scholarsOnly")}
-            sub={t("groupsCreate.visibilityPrivate")}
+            title="Node members only"
+            sub="Private — overseer invite only"
           />
         </div>
       </div>
@@ -549,15 +516,12 @@ function SettingsTab({ group, setToast, t }) {
         {saving
           ? <Loader2 size={14} className="animate-spin" />
           : <Save size={14} />}
-        {saving ? t("common.saving") : t("chat.settings.save")}
+        {saving ? "Saving…" : "Save"}
       </button>
     </form>
   );
 }
 
-// ════════════════════════════════════════════════════════════════
-// Helpers
-// ════════════════════════════════════════════════════════════════
 function Field({ icon: Icon, label, children }) {
   return (
     <div className="space-y-2">

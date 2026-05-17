@@ -1,8 +1,7 @@
-// Maps a Firebase Auth error (or any thrown Error) into a localized message.
-// `t` is the i18next translator from useTranslation().
+// Maps a Firebase Auth error (or any thrown Error) into a user-facing message.
 
-export function mapAuthError(err, t) {
-  if (!err) return t("auth.firebase.default");
+export function mapAuthError(err) {
+  if (!err) return "Authentication error.";
 
   const code = err.code || "";
   const msg = err.message || "";
@@ -10,28 +9,27 @@ export function mapAuthError(err, t) {
   switch (code) {
     case "auth/invalid-credential":
     case "auth/invalid-login-credentials":
-      return t("auth.firebase.invalidCredential");
+      return "Invalid credentials.";
     case "auth/user-not-found":
-      return t("auth.firebase.userNotFound");
+      return "No account found with these details.";
     case "auth/wrong-password":
-      return t("auth.firebase.wrongPassword");
+      return "Incorrect password.";
     case "auth/email-already-in-use":
-      return t("auth.firebase.emailInUse");
+      return "This email is already in use.";
     case "auth/weak-password":
-      return t("auth.firebase.weakPassword");
+      return "Password too weak (at least 6 characters).";
     case "auth/invalid-email":
-      return t("auth.firebase.invalidEmail");
+      return "Invalid email format.";
     case "auth/too-many-requests":
-      return t("auth.firebase.tooManyRequests");
+      return "Too many attempts — please wait and retry.";
     case "auth/network-request-failed":
-      return t("auth.firebase.networkError");
+      return "Network error — check your connection.";
     default:
       break;
   }
 
-  // Heuristic fallbacks for plain Error messages thrown by our API routes
-  if (/network|fetch/i.test(msg)) return t("auth.firebase.networkError");
-  if (/not.?found/i.test(msg)) return t("auth.accountNotFound");
+  if (/network|fetch/i.test(msg)) return "Network error — check your connection.";
+  if (/not.?found/i.test(msg)) return "Academic account not found.";
   if (msg) return msg;
-  return t("auth.firebase.default");
+  return "Authentication error.";
 }

@@ -9,7 +9,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 import MessageAttachment from "@/components/MessageAttachment";
-import { useLanguage } from "@/lib/useLanguage";
 
 // MessageList — live message feed
 //  • Smart auto-scroll: sticks to bottom on new messages, doesn't interrupt scroll-up.
@@ -17,7 +16,7 @@ import { useLanguage } from "@/lib/useLanguage";
 //  • Bubble corners use logical Tailwind utilities (`rounded-ss/se/es/ee`) so the
 //    tail flips automatically under RTL.
 
-function formatTime(createdAt, locale) {
+function formatTime(createdAt) {
   if (!createdAt) return "...";
   const date =
     createdAt instanceof Date
@@ -26,7 +25,7 @@ function formatTime(createdAt, locale) {
       ? new Date(createdAt.seconds * 1000)
       : new Date(createdAt);
   if (Number.isNaN(date.getTime())) return "...";
-  return date.toLocaleTimeString(locale || "en-US", {
+  return date.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -39,12 +38,8 @@ export default function MessageList({
   groupLeaderId,
   onDeleteMessage,
 }) {
-  const { t, lang } = useLanguage();
   const scrollRef = useRef(null);
   const [stickToBottom, setStickToBottom] = useState(true);
-
-  const localeForTime =
-    lang === "ar" ? "ar-DZ" : lang === "fr" ? "fr-FR" : "en-US";
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -72,7 +67,7 @@ export default function MessageList({
     >
       {messages.length === 0 && (
         <p className="text-center text-ink-faint italic font-display py-12">
-          {t("chat.noMessages")}
+          No messages yet — be the first to speak.
         </p>
       )}
       <AnimatePresence initial={false}>
@@ -128,16 +123,16 @@ export default function MessageList({
                 {!m._grouped && (
                   <div className="flex items-center gap-2 mb-1.5 px-2">
                     <span className="text-[11px] italic font-serif text-ink dark:text-white/90 tracking-wide">
-                      {m.senderName || t("chat.scholarFallback")}
+                      {m.senderName || "Scholar"}
                     </span>
                     {(isLeader || isAdmin) && (
                       <span className="flex items-center gap-0.5 text-[8px] font-black text-accent bg-accent/5 px-2 py-0.5 rounded-md border border-accent/15">
                         <ShieldCheck size={8} />
-                        {isAdmin ? t("roles.adminBadge") : t("roles.overseerBadge")}
+                        {isAdmin ? "ADMIN" : "OVERSEER"}
                       </span>
                     )}
                     <span className="text-[10px] italic font-serif text-ink-faint">
-                      · {formatTime(m.createdAt, localeForTime)}
+                      · {formatTime(m.createdAt)}
                     </span>
                   </div>
                 )}
@@ -146,8 +141,8 @@ export default function MessageList({
                   {canDelete && onDeleteMessage && (
                     <button
                       onClick={() => onDeleteMessage(m.id)}
-                      aria-label={t("chat.deleteMessage")}
-                      title={t("chat.deleteMessage")}
+                      aria-label="Delete message"
+                      title="Delete message"
                       className={`p-2 text-rose-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-full ${
                         isMe ? "order-first" : "order-last"
                       }`}
@@ -184,12 +179,12 @@ export default function MessageList({
                     {isOptimistic && !isFailed && (
                       <span className="inline-flex items-center gap-1 mt-2 text-[9px] italic font-serif opacity-80">
                         <Loader2 size={10} className="animate-spin" />
-                        {t("chat.sending")}
+                        sending…
                       </span>
                     )}
                     {isFailed && (
                       <span className="inline-flex items-center gap-1 mt-2 text-[9px] italic font-serif text-rose-200">
-                        <AlertCircle size={10} /> {t("chat.failed")}
+                        <AlertCircle size={10} /> failed to send
                       </span>
                     )}
                   </div>

@@ -5,10 +5,8 @@ import { X, Users, UserMinus, Shield, Loader2 } from "lucide-react";
 import { firestore } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, arrayRemove, increment } from "firebase/firestore";
 import { COL } from "@/lib/collectionNames";
-import { useLanguage } from "@/lib/useLanguage";
 
 export default function GroupMembers({ isOpen, onClose, group, isLeader, setToast }) {
-    const { t } = useLanguage();
     const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [kickingId, setKickingId] = useState(null);
@@ -39,6 +37,7 @@ export default function GroupMembers({ isOpen, onClose, group, isLeader, setToas
 
     const handleKick = async (memberId) => {
         if (!isLeader || memberId === group.leaderId) return;
+        if (!window.confirm("Are you sure you want to kick this member from the group?")) return;
 
         setKickingId(memberId);
         try {
@@ -48,10 +47,10 @@ export default function GroupMembers({ isOpen, onClose, group, isLeader, setToas
                 memberCount: increment(-1)
             });
             setMembers(prev => prev.filter(m => m.id !== memberId));
-            setToast(t("chat.members.removed"));
+            setToast("Member removed");
         } catch (error) {
             console.error(error);
-            setToast(t("chat.members.removeError"));
+            setToast("Could not remove");
         } finally {
             setKickingId(null);
         }
@@ -71,11 +70,11 @@ export default function GroupMembers({ isOpen, onClose, group, isLeader, setToas
                             <div className="flex items-center gap-3">
                                 <Users className="text-brand-indigo" size={20} />
                                 <div>
-                                    <h3 className="text-lg font-serif font-black italic text-white leading-none">{t("chat.members.title")}</h3>
-                                    <p className="text-[7px] font-black uppercase text-slate-600 tracking-[0.3em] mt-2">{t("status.active")}</p>
+                                    <h3 className="text-lg font-serif font-black italic text-white leading-none">Node members</h3>
+                                    <p className="text-[7px] font-black uppercase text-slate-600 tracking-[0.3em] mt-2">Active</p>
                                 </div>
                             </div>
-                            <button onClick={onClose} aria-label={t("common.close")} className="p-2 bg-white/5 text-slate-500 hover:text-white rounded-xl border-none cursor-pointer transition-colors"><X size={18} /></button>
+                            <button onClick={onClose} aria-label="Close" className="p-2 bg-white/5 text-slate-500 hover:text-white rounded-xl border-none cursor-pointer transition-colors"><X size={18} /></button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
@@ -97,7 +96,7 @@ export default function GroupMembers({ isOpen, onClose, group, isLeader, setToas
                                                         {isNodeLeader && <Shield size={10} className="text-emerald-500" />}
                                                     </p>
                                                     <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-1">
-                                                        {isNodeLeader ? t("roles.overseer") : t("roles.scholar")}
+                                                        {isNodeLeader ? "Overseer" : "Scholar"}
                                                     </p>
                                                 </div>
                                             </div>
@@ -107,8 +106,8 @@ export default function GroupMembers({ isOpen, onClose, group, isLeader, setToas
                                                     onClick={() => handleKick(member.id)}
                                                     disabled={kickingId === member.id}
                                                     className="p-2.5 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all border-none cursor-pointer"
-                                                    title={t("chat.members.removeMember")}
-                                                    aria-label={t("chat.members.removeMember")}
+                                                    title="Remove member"
+                                                    aria-label="Remove member"
                                                 >
                                                     {kickingId === member.id ? <Loader2 size={14} className="animate-spin" /> : <UserMinus size={14} />}
                                                 </button>
@@ -121,7 +120,7 @@ export default function GroupMembers({ isOpen, onClose, group, isLeader, setToas
 
                         <div className="p-6 border-t border-white/5 bg-[#0A0A0B]">
                             <p className="text-[9px] font-black text-slate-700 uppercase tracking-widest text-center">
-                                {members.length} {t("roles.members")}
+                                {members.length} Members
                             </p>
                         </div>
                     </motion.aside>

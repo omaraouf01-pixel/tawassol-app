@@ -147,6 +147,28 @@ export function buildNotificationDoc(data) {
   };
 }
 
+// ─── Resource Document Builder ─────────────────────────────────
+export function buildResourceDoc(data) {
+  assert(data.groupId, "groupId is required");
+  assert(data.name, "name is required");
+  assert(data.url, "url is required");
+  assert(data.uid, "uid is required");
+
+  const status = ["pending", "approved", "rejected"].includes(data.status)
+    ? data.status
+    : "pending";
+
+  return {
+    groupId: data.groupId,
+    name: String(data.name).slice(0, 200),
+    url: data.url,
+    uid: data.uid,
+    uploader: data.uploader || "Étudiant",
+    status,
+    createdAt: serverTimestamp(),
+  };
+}
+
 // ─── Join Request Document Builder ─────────────────────────────
 export function buildJoinRequestDoc(data) {
   assert(data.groupId, "groupId is required");

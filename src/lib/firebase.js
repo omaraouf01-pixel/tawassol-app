@@ -8,6 +8,7 @@ import {
   browserLocalPersistence,
   browserSessionPersistence,
   indexedDBLocalPersistence,
+  browserPopupRedirectResolver,
   getAuth,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -52,6 +53,7 @@ if (!getApps().length) {
         browserLocalPersistence,
         browserSessionPersistence,
       ],
+      popupRedirectResolver: browserPopupRedirectResolver,
     });
   } catch (e) {
     auth = getAuth(app);
@@ -64,5 +66,14 @@ if (!getApps().length) {
 // تهيئة الخدمات
 firestore = getFirestore(app);
 storage = getStorage(app); // 👈 ربط خدمة التخزين بالتطبيق
+
+// ─── 4. Phone Auth: تعطيل التحقق في التطوير لاستخدام أرقام الاختبار ───
+if (
+  process.env.NODE_ENV === "development" &&
+  typeof window !== "undefined" &&
+  auth?.settings
+) {
+  auth.settings.appVerificationDisabledForTesting = true;
+}
 
 export { app, auth, firestore, storage }; // 👈 تصدير storage لاستخدامه في الأونبوردينج

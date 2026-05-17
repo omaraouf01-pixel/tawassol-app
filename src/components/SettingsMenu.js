@@ -21,8 +21,6 @@ import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 
 import { SecurityModal, PrivacyModal } from "@/components/SettingsModals";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { useLanguage } from "@/lib/useLanguage";
 
 /**
  * SettingsMenu — compact trigger + upward popover.
@@ -40,7 +38,6 @@ import { useLanguage } from "@/lib/useLanguage";
 export default function SettingsMenu({ currentUser }) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
-  const { t } = useLanguage();
 
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -140,7 +137,7 @@ export default function SettingsMenu({ currentUser }) {
       router.replace("/auth");
     } catch (err) {
       console.error("[LOGOUT]", err);
-      setFlash({ tone: "error", text: t("settings.logoutError") });
+      setFlash({ tone: "error", text: "Could not log out." });
       setBusy(null);
     }
   };
@@ -153,7 +150,7 @@ export default function SettingsMenu({ currentUser }) {
           ref={triggerRef}
           type="button"
           onClick={() => setOpen((v) => !v)}
-          aria-label={t("settings.title")}
+          aria-label="Account Options"
           aria-expanded={open}
           aria-haspopup="menu"
           className={`relative w-10 h-10 inline-flex items-center justify-center rounded-full
@@ -205,7 +202,7 @@ export default function SettingsMenu({ currentUser }) {
                 <div className="px-4 py-3 border-b border-sand dark:border-white/5
                                 bg-cream/60 dark:bg-white/[0.02]">
                   <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
-                    {t("settings.title")}
+                    Account Options
                   </p>
                   {currentUser?.fullName && (
                     <p className="mt-1 text-xs text-ink-muted dark:text-slate-400 truncate font-serif italic">
@@ -218,24 +215,22 @@ export default function SettingsMenu({ currentUser }) {
                 <ul className="py-1.5 text-sm">
                   <MenuItem
                     icon={isDark ? Sun : Moon}
-                    label={isDark ? t("settings.dayMode") : t("settings.nightMode")}
-                    hint={isDark ? t("settings.dayMode") : t("settings.nightScholar")}
+                    label={isDark ? "Daylight" : "Night Mode"}
+                    hint={isDark ? "Daylight" : "Night Scholar"}
                     onClick={handleToggleNight}
                   />
 
-                  <li><LanguageSwitcher variant="menu" /></li>
-
                   <MenuItem
                     icon={Shield}
-                    label={t("settings.security")}
-                    hint={t("settings.securitySubtitle")}
+                    label="Security"
+                    hint="Send a reset link to your email"
                     onClick={handleSecurity}
                   />
 
                   <MenuItem
                     icon={Lock}
-                    label={t("settings.privacy")}
-                    hint={t("settings.privacySubtitle")}
+                    label="Privacy Level"
+                    hint="Choose who can see your profile"
                     onClick={handlePrivacy}
                   />
                 </ul>
@@ -273,7 +268,7 @@ export default function SettingsMenu({ currentUser }) {
                     {busy === "logout"
                       ? <Loader2 size={15} className="animate-spin" />
                       : <LogOut size={15} data-flip-rtl />}
-                    <span>{t("settings.logout")}</span>
+                    <span>Log out</span>
                   </button>
                 </div>
                 </motion.div>

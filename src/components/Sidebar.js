@@ -19,14 +19,12 @@ import { signOut } from "firebase/auth";
 import TsswalLogo from "./TsswalLogo";
 import NotificationCenter from "./NotificationCenter";
 import SettingsMenu from "./SettingsMenu";
-import { useLanguage } from "@/lib/useLanguage";
 
 const ACADEMIC_PURPLE = "#7c83f2";
 
 export default function Sidebar({ currentUser, groups = [] }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { t } = useLanguage();
 
   // حارس واجهة: استبعاد أي مجموعة لا يكون المستخدم عضواً فيها أو مشرفاً عليها،
   // حتى لو سرّبها الاستعلام (طبقة دفاع ثانية).
@@ -39,9 +37,9 @@ export default function Sidebar({ currentUser, groups = [] }) {
 
   // القائمة الرئيسية للملاحة
   const menu = [
-    { label: t("nav.hub"),     icon: LayoutGrid, href: "/hub" },
-    { label: t("nav.explore"), icon: Compass,    href: "/explore" },
-    { label: t("nav.profile"), icon: User,       href: "/profile" },
+    { label: "The Hub",  icon: LayoutGrid, href: "/hub" },
+    { label: "Explore",  icon: Compass,    href: "/explore" },
+    { label: "Profile",  icon: User,       href: "/profile" },
   ];
 
   const handleLogout = async () => {
@@ -66,8 +64,8 @@ export default function Sidebar({ currentUser, groups = [] }) {
             <TsswalLogo size={20} />
           </div>
           <div className="flex flex-col font-display">
-            <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-ink dark:text-white leading-none">{t("common.appName")}</span>
-            <span className="text-[8px] font-bold text-accent uppercase tracking-[0.1em] mt-1 italic">{t("academic.academicNode")}</span>
+            <span className="text-[14px] font-bold uppercase tracking-[0.2em] text-ink dark:text-white leading-none">Twassel</span>
+            <span className="text-[8px] font-bold text-accent uppercase tracking-[0.1em] mt-1 italic">Academic Node</span>
           </div>
         </div>
         <NotificationCenter />
@@ -97,7 +95,7 @@ export default function Sidebar({ currentUser, groups = [] }) {
       {/* ─── المجمعات الخاصة بي (My Communities) ─── */}
       <div className="mb-6 px-2">
         <h3 className="text-[9px] font-black uppercase tracking-[0.3em] text-ink-faint mb-4 flex items-center justify-between font-sans">
-          {t("nav.myCommunities")}
+          My Communities
           <Plus
             size={12}
             className="cursor-pointer hover:text-accent transition-colors"
@@ -130,15 +128,15 @@ export default function Sidebar({ currentUser, groups = [] }) {
                       backgroundColor: `${ACADEMIC_PURPLE}14`,
                       borderColor: `${ACADEMIC_PURPLE}33`,
                     }}
-                    title={isLeader ? t("roles.overseer") : t("roles.member")}
+                    title={isLeader ? "Overseer" : "Member"}
                   >
-                    {isLeader ? t("roles.overseer") : t("roles.member")}
+                    {isLeader ? "Overseer" : "Member"}
                   </span>
                 </button>
               );
             })
           ) : (
-            <p className="text-[9px] text-ink-faint italic px-2">{t("nav.noClusters")}</p>
+            <p className="text-[9px] text-ink-faint italic px-2">No active clusters detected.</p>
           )}
         </div>
       </div>
@@ -148,7 +146,7 @@ export default function Sidebar({ currentUser, groups = [] }) {
 
         {/* شريط التحكم في النظام (System Control Dock) */}
         <div className="flex items-center justify-between px-2 mb-2">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-ink-faint">{t("nav.systemControl")}</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-ink-faint">System Control</p>
           <div className="flex items-center gap-1">
             <SettingsMenu currentUser={currentUser} />
           </div>
@@ -176,10 +174,10 @@ export default function Sidebar({ currentUser, groups = [] }) {
 
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-bold text-ink dark:text-white truncate leading-none mb-1.5">
-              {currentUser?.fullName?.split(" ")[0] || t("roles.scholar")}
+              {currentUser?.fullName?.split(" ")[0] || "Scholar"}
             </p>
             <p className="text-[8px] font-bold text-accent uppercase tracking-widest truncate">
-              {currentUser?.major || t("academic.academicNode")}
+              {currentUser?.major || "Academic Node"}
             </p>
           </div>
           <ChevronRight size={12} className="text-sand group-hover:text-accent transition-colors" data-flip-rtl />
@@ -191,7 +189,7 @@ export default function Sidebar({ currentUser, groups = [] }) {
           className="w-full flex items-center justify-center gap-2 py-2 text-ink-faint hover:text-rose-500 text-[9px] font-bold uppercase tracking-[0.3em] transition-colors bg-transparent border-none cursor-pointer"
         >
           <LogOut size={14} data-flip-rtl />
-          {t("nav.terminateSession")}
+          Terminate session
         </button>
       </div>
 

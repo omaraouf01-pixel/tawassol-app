@@ -2,11 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Users, Search, Loader2, GraduationCap } from "lucide-react";
+import { X, Users, Search, Loader2, GraduationCap, UserMinus } from "lucide-react";
 import { firestore } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, arrayRemove, increment } from "firebase/firestore";
 import { COL } from "@/lib/collectionNames";
-import { useLanguage } from "@/lib/useLanguage";
 
 const ACADEMIC_PURPLE = "#7c83f2";
 const CREAM = "#F8F8F5";
@@ -18,18 +17,18 @@ function isOnline(member) {
   return Date.now() - ts < 3 * 60 * 1000;
 }
 
-function PresenceDot({ online, t }) {
+function PresenceDot({ online }) {
   return (
     <span
       className={`inline-block w-2 h-2 rounded-full shrink-0 ${
         online ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]" : "bg-slate-400/60"
       }`}
-      title={online ? t("chat.members.online") : t("chat.members.offline")}
+      title={online ? "Online" : "Offline"}
     />
   );
 }
 
-function MemberRow({ member, isOverseer, t }) {
+function MemberRow({ member, isOverseer, canKick, onKick, kicking }) {
   const initial = (member.fullName || member.displayName || "S")[0]?.toUpperCase();
   return (
     <motion.div
@@ -37,7 +36,7 @@ function MemberRow({ member, isOverseer, t }) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
-      className="flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors"
+      className="group flex items-center gap-3 px-3 py-2.5 rounded-2xl hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors"
     >
       {member.photoURL ? (
         <img
@@ -63,32 +62,67 @@ function MemberRow({ member, isOverseer, t }) {
             className="text-sm font-bold truncate"
             style={isOverseer ? { color: ACADEMIC_PURPLE } : undefined}
           >
-            {member.fullName || member.displayName || t("common.anonymous")}
+            {member.fullName || member.displayName || "Anonymous"}
           </p>
           {isOverseer && (
             <span
               className="px-1.5 py-0.5 rounded-md text-[7px] font-black uppercase tracking-widest"
               style={{ background: `${ACADEMIC_PURPLE}1A`, color: ACADEMIC_PURPLE }}
             >
-              {t("roles.overseer")}
+              Overseer
             </span>
           )}
         </div>
         <p className="text-[9px] font-black uppercase tracking-[0.22em] text-ink-faint dark:text-slate-500 mt-1 truncate">
-          {member.major || (isOverseer ? t("roles.overseer") : t("roles.scholar"))}
+          {member.major || (isOverseer ? "Overseer" : "Scholar")}
         </p>
       </div>
 
-      <PresenceDot online={isOnline(member)} t={t} />
+      <PresenceDot online={isOnline(member)} />
+
+      {canKick && (
+        <button
+          onClick={() => onKick(member.id)}
+          disabled={kicking}
+          className="p-2 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Remove member"
+          aria-label="Remove member"
+        >
+          {kicking ? <Loader2 size={14} className="animate-spin" /> : <UserMinus size={14} />}
+        </button>
+      )}
     </motion.div>
   );
 }
 
-export default function MemberListDrawer({ isOpen, onClose, group }) {
-  const { t } = useLanguage();
+export default function MemberListDrawer({ isOpen, onClose, group, isLeader, isAdmin }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [kickingId, setKickingId] = useState(null);
+
+  const canModerate = !!(isLeader || isAdmin);
+
+  const handleKick = async (memberId) => {
+    if (!canModerate || !group?.id) return;
+    if (memberId === group.leaderId) return;
+    if (!window.confirm("Are you sure you want to kick this member from the group?")) return;
+
+    setKickingId(memberId);
+    try {
+      const groupRef = doc(firestore, COL.GROUPS, group.id);
+      await updateDoc(groupRef, {
+        members: arrayRemove(memberId),
+        memberCount: increment(-1),
+      });
+      setMembers((prev) => prev.filter((m) => m.id !== memberId));
+    } catch (err) {
+      console.error("[MemberListDrawer] Kick failed:", err);
+      alert("Could not remove member.");
+    } finally {
+      setKickingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !group?.members?.length) {
@@ -176,17 +210,17 @@ export default function MemberListDrawer({ isOpen, onClose, group }) {
                 </div>
                 <div>
                   <h3 className="text-base font-serif italic font-black leading-none text-ink">
-                    {t("chat.members.title")}
+                    Node members
                   </h3>
                   <p className="text-[8px] font-black uppercase tracking-[0.28em] text-ink-faint mt-2">
-                    {group?.members?.length || 0} {t("roles.members")}
+                    {group?.members?.length || 0} Members
                   </p>
                 </div>
               </div>
               <button
                 onClick={onClose}
                 className="p-2 rounded-xl text-ink-faint hover:text-ink hover:bg-black/5 transition-colors"
-                aria-label={t("common.close")}
+                aria-label="Close"
               >
                 <X size={18} />
               </button>
@@ -203,7 +237,7 @@ export default function MemberListDrawer({ isOpen, onClose, group }) {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t("common.search")}
+                  placeholder="Search"
                   className="w-full ps-9 pe-3 py-2.5 text-xs bg-white/70 border border-black/5 rounded-xl outline-none focus:border-[var(--ac)] transition-colors text-ink placeholder:text-ink-faint"
                   style={{ "--ac": ACADEMIC_PURPLE }}
                 />
@@ -224,11 +258,11 @@ export default function MemberListDrawer({ isOpen, onClose, group }) {
                         className="px-3 mb-1 text-[10px] font-serif italic font-bold tracking-wide"
                         style={{ color: ACADEMIC_PURPLE }}
                       >
-                        {t("roles.overseer")}
+                        Overseer
                       </h4>
                       <AnimatePresence initial={false}>
                         {overseers.map((m) => (
-                          <MemberRow key={m.id} member={m} isOverseer t={t} />
+                          <MemberRow key={m.id} member={m} isOverseer canKick={false} />
                         ))}
                       </AnimatePresence>
                     </section>
@@ -238,11 +272,18 @@ export default function MemberListDrawer({ isOpen, onClose, group }) {
                     <section className="mt-4">
                       <h4 className="px-3 mb-1 text-[10px] font-serif italic font-bold tracking-wide text-ink-muted flex items-center gap-1.5">
                         <GraduationCap size={11} />
-                        {t("roles.scholars")}
+                        Scholars
                       </h4>
                       <AnimatePresence initial={false}>
                         {scholars.map((m) => (
-                          <MemberRow key={m.id} member={m} isOverseer={false} t={t} />
+                          <MemberRow
+                            key={m.id}
+                            member={m}
+                            isOverseer={false}
+                            canKick={canModerate}
+                            onKick={handleKick}
+                            kicking={kickingId === m.id}
+                          />
                         ))}
                       </AnimatePresence>
                     </section>
@@ -250,7 +291,7 @@ export default function MemberListDrawer({ isOpen, onClose, group }) {
 
                   {!loading && overseers.length === 0 && scholars.length === 0 && (
                     <p className="text-center text-xs font-serif italic text-ink-faint py-12">
-                      {t("explore.noResults")}
+                      No results
                     </p>
                   )}
                 </>

@@ -1,6 +1,8 @@
 import { joinRequestsCol } from "@/lib/collections";
 import { withAuth, jsonOk } from "@/lib/withAuth";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/user/pending-requests
 // يرجع قائمة بمعرفات المجموعات التي للمستخدم الحالي طلب انضمام معلق فيها.
 export const GET = withAuth(async (_req, _ctx, { uid }) => {

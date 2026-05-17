@@ -10,7 +10,23 @@
       "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"C:\\\\Users\\\\omara\\\\tawassol\\\\firestore.indexes.json\"\\)[0..3]; \"First 4 bytes: $\\($bytes -join ','\\)\"; \"Size: $\\(\\(Get-Item C:\\\\Users\\\\omara\\\\tawassol\\\\firestore.indexes.json\\).Length\\) bytes\")",
       "Bash(npm install *)",
       "PowerShell(npm install i18next react-i18next i18next-browser-languagedetector --save --prefix C:\\\\Users\\\\omara\\\\tawassol 2>&1)",
-      "Bash(node -e \"require\\('fs'\\).readFileSync\\('C:/Users/omara/tawassol/src/app/hub/page.js','utf8'\\);console.log\\('ok'\\)\")"
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('C:/Users/omara/tawassol/src/app/hub/page.js','utf8'\\);console.log\\('ok'\\)\")",
+      "Bash(ls C:\\\\\\\\Users\\\\\\\\omara\\\\\\\\tawassol\\\\\\\\src\\\\\\\\lib\\\\\\\\i18n)",
+      "Bash(ls C:\\\\\\\\Users\\\\\\\\omara\\\\\\\\tawassol\\\\\\\\src\\\\\\\\lib)",
+      "Bash(rm \"C:/Users/omara/tawassol/src/components/LanguageSwitcher.js\")",
+      "Bash(npm run *)",
+      "PowerShell(npm run lint 2>&1)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\omara\\\\tawassol\\\\src\" -Recurse -Include \"*.js\", \"*.jsx\", \"*.ts\", \"*.tsx\")",
+      "Bash(Select-Object -First 50 FullName)",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\omara\\\\tawassol\\\\src\\\\app\\\\hub\\\\page.js\"\\).Count; \"Lines in hub\\\\page.js\"; \\(Get-Content \"C:\\\\Users\\\\omara\\\\tawassol\\\\src\\\\app\\\\hub\\\\chat\\\\[id]\\\\page.js\"\\).Count; \"Lines in chat\\\\[id]\\\\page.js\"; \\(Get-Content \"C:\\\\Users\\\\omara\\\\tawassol\\\\src\\\\app\\\\explore\\\\page.js\"\\).Count; \"Lines in explore\\\\page.js\")",
+      "PowerShell(npm run build 2>&1)",
+      "Bash(find /c/Users/omara/tawassol -maxdepth 3 -name \"package.json\" -not -path \"*/node_modules/*\" 2>/dev/null)",
+      "PowerShell(Get-ChildItem -Path C:\\\\Users\\\\omara\\\\tawassol -Filter package.json -Recurse -Depth 3 -ErrorAction SilentlyContinue | Where-Object { $_.FullName -notmatch 'node_modules' } | Select-Object -ExpandProperty FullName)",
+      "Bash(ls \"C:\\\\Users\\\\omara\\\\tawassol\\\\src\\\\app\\\\api\\\\auth\" 2>NUL || echo NOT_EXIST)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\omara\\\\tawassol\\\\src\" -Recurse -Directory)",
+      "Bash(Select-Object -First 30)",
+      "Bash(Format-Table FullName)",
+      "PowerShell(git add -A)"
     ]
   }
 }

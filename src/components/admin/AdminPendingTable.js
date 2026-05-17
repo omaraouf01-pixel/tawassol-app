@@ -27,7 +27,7 @@ export default function AdminPendingTable({ users, onApprove, onReject, onViewID
                             <td className="px-8 py-6">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 rounded-full bg-[#7c83f2]/10 flex items-center justify-center font-bold text-[#7c83f2]">
-                                        {u.fullName[0]}
+                                        {u.fullName?.[0]?.toUpperCase() || "?"}
                                     </div>
                                     <div>
                                         <p className="font-bold text-slate-800 dark:text-slate-100">{u.fullName}</p>

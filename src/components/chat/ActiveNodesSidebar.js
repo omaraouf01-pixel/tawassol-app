@@ -2,13 +2,11 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { useLanguage } from "@/lib/useLanguage";
 
 const ACADEMIC_PURPLE = "#7c83f2";
 
 export default function ActiveNodesSidebar({ nodes = [], activeId, currentUser }) {
     const router = useRouter();
-    const { t } = useLanguage();
 
     // حارس واجهة: لا نرندر أي عقدة لا ينتمي إليها المستخدم (عضو أو قائد).
     const uid = currentUser?.uid;
@@ -21,12 +19,12 @@ export default function ActiveNodesSidebar({ nodes = [], activeId, currentUser }
     return (
         <div className="flex flex-col h-full bg-transparent">
             <div className="px-6 pt-6 pb-4">
-                <h3 className="text-[9px] font-black uppercase tracking-[0.3em] text-ink-faint font-sans">{t("nav.myCommunities")}</h3>
+                <h3 className="text-[9px] font-black uppercase tracking-[0.3em] text-ink-faint font-sans">My Communities</h3>
             </div>
 
             <div className="flex-1 overflow-y-auto hide-scrollbar px-3 space-y-1">
                 {myNodes.length === 0 && (
-                    <p className="px-3 py-2 text-[9px] text-ink-faint italic">{t("nav.noClusters")}</p>
+                    <p className="px-3 py-2 text-[9px] text-ink-faint italic">No active clusters detected.</p>
                 )}
                 {myNodes.map((node) => {
                     const isActive = node.id === activeId;
@@ -59,7 +57,7 @@ export default function ActiveNodesSidebar({ nodes = [], activeId, currentUser }
                                     {node.name}
                                 </p>
                                 <span className={`text-[7px] font-black uppercase tracking-widest mt-1 block ${isActive ? "text-white/70" : "opacity-50"}`}>
-                                    {isLeader ? t("roles.overseer") : t("roles.scholar")}
+                                    {isLeader ? "Overseer" : "Scholar"}
                                 </span>
                             </div>
                         </button>
