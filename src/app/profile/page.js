@@ -4,13 +4,12 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Camera, Loader2, CheckCircle,
-  Mail, GraduationCap, Hash, Github, Linkedin, Globe,
+  Mail, GraduationCap, Hash, Code2 as Github, Briefcase as Linkedin, Globe,
   Pencil, X, Save, ChevronRight, CalendarDays,
   Layers, FileText, AlertCircle,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/useAuth";
-import { useLanguage } from "@/lib/useLanguage";
 import { firestore, auth } from "@/lib/firebase";
 import {
   doc, updateDoc, collection, query, where,
@@ -19,6 +18,7 @@ import {
 
 import Sidebar from "@/components/Sidebar";
 import LinkField from "@/components/LinkField";
+import { COL } from "@/lib/collectionNames";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function formatJoinDate(createdAt) {
@@ -65,7 +65,7 @@ function StatCard({ icon: Icon, label, value, accent = false }) {
 }
 
 // ─── Edit Profile Modal ──────────────────────────────────────────
-function EditProfileModal({ open, onClose, userData, onSaved, t }) {
+function EditProfileModal({ open, onClose, userData, onSaved }) {
   const [form, setForm] = useState({
     fullName: "",
     major: "",
@@ -98,23 +98,23 @@ function EditProfileModal({ open, onClose, userData, onSaved, t }) {
     setError("");
 
     if (form.fullName.trim().length < 2) {
-      setError(t("profile.saveError"));
+      setError("Full name must be at least 2 characters.");
       return;
     }
     if (form.bio.length > 500) {
-      setError(t("profile.saveError"));
+      setError("Bio must be 500 characters or less.");
       return;
     }
 
     const validateUrl = (u, label) => {
       if (!u) return null;
-      if (!/^https?:\/\//i.test(u.trim())) return `${label} — ${t("profile.linkPlaceholder")}`;
+      if (!/^https?:\/\//i.test(u.trim())) return `${label} — must start with https://`;
       return null;
     };
     const urlErr =
       validateUrl(form.github, "GitHub") ||
       validateUrl(form.linkedin, "LinkedIn") ||
-      validateUrl(form.portfolio, t("profile.links"));
+      validateUrl(form.portfolio, "Portfolio");
     if (urlErr) {
       setError(urlErr);
       return;
@@ -142,14 +142,14 @@ function EditProfileModal({ open, onClose, userData, onSaved, t }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.error || t("profile.saveError"));
+        setError(data?.error || "Could not save");
         return;
       }
       onSaved?.();
       onClose();
     } catch (err) {
       console.error("Profile save error:", err);
-      setError(t("errors.network"));
+      setError("Network error. Check your connection.");
     } finally {
       setSaving(false);
     }
@@ -179,10 +179,10 @@ function EditProfileModal({ open, onClose, userData, onSaved, t }) {
             <div className="flex items-center justify-between p-6 border-b border-sand dark:border-white/10">
               <div>
                 <h2 className="text-xl font-display font-bold italic text-ink dark:text-white">
-                  {t("profile.editProfile")}
+                  Edit Profile
                 </h2>
                 <p className="text-xs text-ink-faint mt-1">
-                  {t("profile.title")}
+                  My Academic Profile
                 </p>
               </div>
               <button
@@ -197,43 +197,43 @@ function EditProfileModal({ open, onClose, userData, onSaved, t }) {
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <Field label={t("profile.fullName")}>
+              <Field label="Full name">
                 <input
                   value={form.fullName}
                   onChange={handleChange("fullName")}
                   className={inputCls}
-                  placeholder={t("auth.fullNamePlaceholder")}
+                  placeholder="Enter your full name"
                 />
               </Field>
 
-              <Field label={t("profile.major")}>
+              <Field label="Major">
                 <input
                   value={form.major}
                   onChange={handleChange("major")}
                   className={inputCls}
-                  placeholder={t("profile.major")}
+                  placeholder="Major"
                 />
               </Field>
 
-              <Field label={t("profile.bio")} hint={`${form.bio.length}/500`}>
+              <Field label="Bio" hint={`${form.bio.length}/500`}>
                 <textarea
                   value={form.bio}
                   onChange={handleChange("bio")}
                   rows={4}
                   maxLength={500}
                   className={`${inputCls} font-display italic leading-relaxed resize-none`}
-                  placeholder={t("profile.bioPlaceholder")}
+                  placeholder="Tell us about your academic interests…"
                 />
               </Field>
 
               <div className="pt-2">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-accent mb-3">
-                  {t("profile.links")}
+                  Professional links
                 </p>
                 <div className="space-y-3">
-                  <LinkField iconName="github"   label="GitHub"    value={form.github}    onChange={handleChange("github")}    placeholder={t("profile.linkPlaceholder")} />
-                  <LinkField iconName="linkedin" label="LinkedIn"  value={form.linkedin}  onChange={handleChange("linkedin")}  placeholder={t("profile.linkPlaceholder")} />
-                  <LinkField iconName="globe"    label={t("profile.links")} value={form.portfolio} onChange={handleChange("portfolio")} placeholder={t("profile.linkPlaceholder")} />
+                  <LinkField iconName="github"   label="GitHub"    value={form.github}    onChange={handleChange("github")}    placeholder="https://..." />
+                  <LinkField iconName="linkedin" label="LinkedIn"  value={form.linkedin}  onChange={handleChange("linkedin")}  placeholder="https://..." />
+                  <LinkField iconName="globe"    label="Portfolio" value={form.portfolio} onChange={handleChange("portfolio")} placeholder="https://..." />
                 </div>
               </div>
 
@@ -253,7 +253,7 @@ function EditProfileModal({ open, onClose, userData, onSaved, t }) {
                 className="px-5 py-2.5 rounded-xl text-sm font-semibold text-ink-muted dark:text-slate-300
                            hover:bg-sand/40 dark:hover:bg-white/5 transition"
               >
-                {t("common.cancel")}
+                Cancel
               </button>
               <button
                 type="submit"
@@ -263,7 +263,7 @@ function EditProfileModal({ open, onClose, userData, onSaved, t }) {
                            hover:brightness-110 transition disabled:opacity-60"
               >
                 {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                {saving ? t("common.saving") : t("profile.saveChanges")}
+                {saving ? "Saving…" : "Save changes"}
               </button>
             </div>
           </motion.form>
@@ -297,7 +297,6 @@ function Field({ label, hint, children }) {
 // ─── Page ────────────────────────────────────────────────────────
 export default function ProfilePage() {
   const { user, userData, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
   const fileInputRef = useRef(null);
 
   const [stats, setStats] = useState({ groupsCount: 0, resourcesCount: 0 });
@@ -310,12 +309,15 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!userData?.uid) return;
     const q = query(
-      collection(firestore, "groups"),
+      collection(firestore, COL.GROUPS),
       where("members", "array-contains", userData.uid)
     );
-    return onSnapshot(q, (snapshot) => {
-      setGroups(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => setGroups(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Profile] groups listener:", err)
+    );
+    return () => unsub();
   }, [userData?.uid]);
 
   // 2. Live counts (Nodes joined + Resources contributed)
@@ -326,7 +328,7 @@ export default function ProfilePage() {
     const fetchStats = async () => {
       try {
         const groupsQuery = query(
-          collection(firestore, "groups"),
+          collection(firestore, COL.GROUPS),
           where("members", "array-contains", user.uid)
         );
         const groupsSnap = await getCountFromServer(groupsQuery);
@@ -334,7 +336,7 @@ export default function ProfilePage() {
         let resourcesCount = 0;
         try {
           const resQuery = query(
-            collection(firestore, "resources"),
+            collection(firestore, COL.RESOURCES),
             where("uploadedBy", "==", user.uid)
           );
           const resSnap = await getCountFromServer(resQuery);
@@ -356,7 +358,7 @@ export default function ProfilePage() {
 
     fetchStats();
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user?.uid]);
 
   // 3. Avatar upload — Cloudinary via existing /api/upload
   const handleAvatarChange = async (e) => {
@@ -382,7 +384,7 @@ export default function ProfilePage() {
       const data = await response.json();
 
       if (data.url) {
-        await updateDoc(doc(firestore, "users", user.uid), { avatarUrl: data.url });
+        await updateDoc(doc(firestore, COL.USERS, user.uid), { avatarUrl: data.url });
         setSuccess(true);
         setTimeout(() => setSuccess(false), 2500);
       }
@@ -397,7 +399,7 @@ export default function ProfilePage() {
   const social = userData?.socialLinks || {};
   const hasAnyLink = !!(social.github || social.linkedin || social.portfolio);
   const joinDate = useMemo(() => formatJoinDate(userData?.createdAt), [userData?.createdAt]);
-  const academicTitle = userData?.major || userData?.department || t("roles.scholar");
+  const academicTitle = userData?.major || userData?.department || "Scholar";
 
   if (authLoading || !userData) {
     return (
@@ -421,10 +423,10 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
-                {t("academic.academicNode")}
+                Academic Node
               </p>
               <h1 className="text-2xl md:text-3xl font-display italic font-bold mt-1 text-ink dark:text-white">
-                {t("profile.title")}
+                My Academic Profile
               </h1>
             </div>
           </div>
@@ -463,7 +465,7 @@ export default function ProfilePage() {
                     onClick={() => fileInputRef.current?.click()}
                     className="absolute inset-0 bg-black/40 flex items-center justify-center
                                opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label={t("profile.avatarUpdate")}
+                    aria-label="Update photo"
                   >
                     <Camera size={24} className="text-white" />
                   </button>

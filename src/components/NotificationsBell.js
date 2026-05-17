@@ -10,36 +10,21 @@ import {
   Circle
 } from "lucide-react";
 
-// ─── CANVAS PREVIEW MOCKS ──────────────────────────────────────────
-// ملاحظة هامة: يرجى إزالة التعليقات عن الأسطر التالية عند نقل الكود لمشروعك المحلي
-// وحذف هذه البدائل المؤقتة (Mocks).
-// import { useRouter } from "next/navigation";
-// import { auth, firestore } from "@/lib/firebase";
-// import { onAuthStateChanged } from "firebase/auth";
-// import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc, writeBatch } from "firebase/firestore";
-
-const useRouter = () => ({ push: (path) => console.log("Navigating to:", path) });
-const auth = {};
-const firestore = {};
-const onAuthStateChanged = (a, cb) => { cb({ uid: "user123" }); return () => { }; };
-const collection = () => { };
-const query = () => { };
-const where = () => { };
-const orderBy = () => { };
-const limit = () => { };
-const onSnapshot = (q, cb) => {
-  cb({
-    docs: [
-      { id: '1', data: () => ({ title: 'System Initialization', body: 'Welcome to Twassel. Your sanctuary is ready.', read: false, createdAt: { toDate: () => new Date() } }) },
-      { id: '2', data: () => ({ title: 'Node Sync', body: 'Connected to the global academic node successfully.', read: true, createdAt: { toDate: () => new Date(Date.now() - 86400000) } }) },
-    ]
-  });
-  return () => { };
-};
-const doc = () => { };
-const updateDoc = async () => { };
-const writeBatch = () => ({ update: () => { }, commit: async () => { } });
-// ─────────────────────────────────────────────────────────────────
+import { useRouter } from "next/navigation";
+import { auth, firestore } from "@/lib/firebase";
+import { COL } from "@/lib/collectionNames";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+  doc,
+  updateDoc,
+  writeBatch,
+} from "firebase/firestore";
 
 // ── Editorial Time Format (Translated to English) ────────────────────────────
 function timeAgo(dateStr) {
@@ -76,7 +61,7 @@ export default function NotificationsBell() {
   useEffect(() => {
     if (!uid) { setNotifs([]); return; }
     const q = query(
-      collection(firestore, "notifications"),
+      collection(firestore, COL.NOTIFICATIONS),
       where("userId", "==", uid),
       orderBy("createdAt", "desc"),
       limit(50)
@@ -114,7 +99,7 @@ export default function NotificationsBell() {
     if (unread.length === 0) return;
     try {
       const batch = writeBatch(firestore);
-      unread.forEach((n) => { batch.update(doc(firestore, "notifications", n.id), { read: true }); });
+      unread.forEach((n) => { batch.update(doc(firestore, COL.NOTIFICATIONS, n.id), { read: true }); });
       await batch.commit();
 
       // Update local state for the preview
@@ -125,7 +110,7 @@ export default function NotificationsBell() {
   const markOneRead = useCallback(async (notif) => {
     if (notif.read) return;
     try {
-      await updateDoc(doc(firestore, "notifications", notif.id), { read: true });
+      await updateDoc(doc(firestore, COL.NOTIFICATIONS, notif.id), { read: true });
       // Update local state for the preview
       setNotifs(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
     }

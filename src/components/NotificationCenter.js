@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { firestore } from "@/lib/firebase";
+import { COL } from "@/lib/collectionNames";
 import {
   collection,
   query,
@@ -28,7 +29,6 @@ import {
 } from "firebase/firestore";
 
 import { useAuth } from "@/lib/useAuth";
-import { useLanguage } from "@/lib/useLanguage";
 
 const PURPLE = "#7c83f2";
 const CREAM = "#F8F8F5";
@@ -44,10 +44,8 @@ function iconFor(type) {
   }
 }
 
-// Compact relative-time formatter. `lang` controls the unit suffixes and the
-// fallback date locale so the chip never mixes scripts.
-function formatWhen(createdAt, lang, t) {
-  const justNow = t("common.justNow");
+function formatWhen(createdAt) {
+  const justNow = "just now";
   if (!createdAt) return justNow;
   let d;
   try {
@@ -60,26 +58,14 @@ function formatWhen(createdAt, lang, t) {
   }
   const diff = Math.max(0, (Date.now() - d.getTime()) / 1000);
   if (diff < 60) return justNow;
-  const locale = lang === "ar" ? "ar-DZ" : lang === "fr" ? "fr-FR" : "en-US";
-  if (diff < 3600) {
-    const m = Math.floor(diff / 60);
-    if (lang === "ar") return `${m} د`;
-    if (lang === "fr") return `il y a ${m} min`;
-    return `${m} min ago`;
-  }
-  if (diff < 86400) {
-    const h = Math.floor(diff / 3600);
-    if (lang === "ar") return `${h} س`;
-    if (lang === "fr") return `il y a ${h} h`;
-    return `${h} h ago`;
-  }
-  return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export default function NotificationCenter() {
   const router = useRouter();
   const { userData } = useAuth();
-  const { t, lang } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const wrapRef = useRef(null);
@@ -100,7 +86,7 @@ export default function NotificationCenter() {
   useEffect(() => {
     if (!userData?.uid) return;
     const q = query(
-      collection(firestore, "notifications"),
+      collection(firestore, COL.NOTIFICATIONS),
       where("userId", "==", userData.uid),
       orderBy("createdAt", "desc"),
       limit(20),
@@ -118,7 +104,7 @@ export default function NotificationCenter() {
     if (unread.length === 0) return;
     try {
       const batch = writeBatch(firestore);
-      unread.forEach((n) => batch.update(doc(firestore, "notifications", n.id), { read: true }));
+      unread.forEach((n) => batch.update(doc(firestore, COL.NOTIFICATIONS, n.id), { read: true }));
       await batch.commit();
     } catch (err) {
       console.error("[NOTIF_MARK_ALL]", err);
@@ -127,7 +113,7 @@ export default function NotificationCenter() {
 
   const handleClick = async (n) => {
     if (n.read === false) {
-      updateDoc(doc(firestore, "notifications", n.id), { read: true })
+      updateDoc(doc(firestore, COL.NOTIFICATIONS, n.id), { read: true })
         .catch((err) => console.error("[NOTIF_READ]", err));
     }
     setIsOpen(false);
@@ -140,7 +126,7 @@ export default function NotificationCenter() {
       <button
         type="button"
         onClick={() => setIsOpen((v) => !v)}
-        aria-label={t("notifications.title")}
+        aria-label="Notifications"
         aria-expanded={isOpen}
         className="relative w-10 h-10 inline-flex items-center justify-center rounded-full
                    text-[color:var(--c)] hover:bg-[color:var(--c)]/10 transition-colors"
@@ -179,10 +165,10 @@ export default function NotificationCenter() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div className="text-start">
                 <h3 className="text-sm font-bold text-slate-800 leading-none">
-                  {t("notifications.title")}
+                  Notifications
                 </h3>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400 mt-1.5">
-                  {unreadCount > 0 ? `${unreadCount} ${t("status.pending")}` : t("notifications.empty")}
+                  {unreadCount > 0 ? `${unreadCount} Pending` : "No notifications"}
                 </p>
               </div>
               {unreadCount > 0 && (
@@ -195,7 +181,7 @@ export default function NotificationCenter() {
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = `${PURPLE}22`)}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = `${PURPLE}14`)}
                 >
-                  <CheckCheck size={13} /> {t("notifications.markAllRead")}
+                  <CheckCheck size={13} /> Mark all as read
                 </button>
               )}
             </div>
@@ -210,9 +196,9 @@ export default function NotificationCenter() {
                   >
                     <Inbox size={20} strokeWidth={1.6} />
                   </div>
-                  <p className="text-sm font-semibold text-slate-700">{t("notifications.empty")}</p>
+                  <p className="text-sm font-semibold text-slate-700">No notifications</p>
                   <p className="text-xs font-serif italic text-slate-400 leading-relaxed">
-                    {t("notifications.title")}
+                    Notifications
                   </p>
                 </li>
               ) : (
@@ -261,7 +247,7 @@ export default function NotificationCenter() {
                             </p>
                           )}
                           <div className="flex items-center gap-1.5 mt-2 text-[10px] font-medium text-slate-400">
-                            <span>{formatWhen(n.createdAt, lang, t)}</span>
+                            <span>{formatWhen(n.createdAt)}</span>
                             {n.link && (
                               <ChevronRight
                                 size={11}

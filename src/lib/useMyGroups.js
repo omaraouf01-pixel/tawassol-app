@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { firestore, auth } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { COL } from "./collectionNames";
 
 /**
  * ════════════════════════════════════════════════════════════════
@@ -54,7 +55,7 @@ export function useMyGroups() {
       }
 
       const q = query(
-        collection(firestore, "groups"),
+        collection(firestore, COL.GROUPS),
         where("members", "array-contains", user.uid),
         where("status", "==", "active"),
         orderBy("updatedAt", "desc")

@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext } from "react";
 import { auth, firestore as db } from "./firebase";
 import { onIdTokenChanged } from "firebase/auth";
 import { doc, onSnapshot, getDoc } from "firebase/firestore";
+import { COL } from "./collectionNames";
 import { useRouter, usePathname } from "next/navigation"; // استيراد أدوات التوجيه
 
 const AuthContext = createContext({ user: null, userData: null, loading: true });
@@ -23,12 +24,11 @@ export const AuthProvider = ({ children }) => {
       if (firebaseUser) {
         setUser(firebaseUser);
         try {
-          const userDocRef = doc(db, "users", firebaseUser.uid);
+          const userDocRef = doc(db, COL.USERS, firebaseUser.uid);
           const docSnap = await getDoc(userDocRef);
 
           if (docSnap.exists()) {
             setUserData(docSnap.data());
-            console.log("[Auth] Data Initialized:", docSnap.data().status);
           } else {
             const token = await firebaseUser.getIdToken();
             const response = await fetch("/api/user/profile", {
@@ -68,15 +68,14 @@ export const AuthProvider = ({ children }) => {
     let lastStatus = null;
 
     const unsub = onSnapshot(
-      doc(db, "users", user.uid),
+      doc(db, COL.USERS, user.uid),
       async (snapshot) => {
         if (!snapshot.exists()) return;
         const data = snapshot.data();
-        setUserData(data);
-        console.log("[Auth] Real-time Update:", data.status);
 
         // إذا تغيرت الحالة (مثلاً pending → active بعد موافقة الـ Admin)،
-        // اطلب توكن جديد لتتزامن الـ Custom Claims مع وثيقة Firestore.
+        // اطلب توكن جديد لتتزامن الـ Custom Claims قبل تحديث userData
+        // حتى لا يطلق منطق التوجيه قبل أن تكون قواعد Firestore جاهزة.
         if (lastStatus !== null && lastStatus !== data.status) {
           try {
             await auth.currentUser?.getIdToken(true);
@@ -85,6 +84,7 @@ export const AuthProvider = ({ children }) => {
           }
         }
         lastStatus = data.status;
+        setUserData(data);
       },
       (error) => {
         console.error("[Auth] Snapshot Error:", error);

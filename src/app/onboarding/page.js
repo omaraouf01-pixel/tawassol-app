@@ -13,7 +13,7 @@ import {
 import { auth, firestore } from "@/lib/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { useAuth } from "@/lib/useAuth";
-import { useLanguage } from "@/lib/useLanguage";
+import { COL } from "@/lib/collectionNames";
 
 // Academic Data — Single Source of Truth
 import { UNIVERSITIES, MAJORS, LEVELS } from "@/lib/academicData";
@@ -21,7 +21,7 @@ import { UNIVERSITIES, MAJORS, LEVELS } from "@/lib/academicData";
 // Components
 import TsswalLogo from "@/components/TsswalLogo";
 
-const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedValue, t }) => {
+const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedValue }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const filtered = options.filter(opt => opt.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -36,15 +36,15 @@ const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedVal
             initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
             className="w-full max-w-md bg-[#F8F8F5] dark:bg-[#0a0a0b] border border-slate-200 dark:border-white/5 rounded-[2.5rem] p-8 shadow-2xl relative"
           >
-            <button onClick={onClose} aria-label={t("common.close")} className="absolute top-8 end-8 text-slate-400 hover:text-[#7c83f2] transition-colors">
+            <button onClick={onClose} aria-label="Close" className="absolute top-8 end-8 text-slate-400 hover:text-[#7c83f2] transition-colors">
               <X size={20} />
             </button>
-            <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#7c83f2] mb-6">{t("common.select")} — {title}</h2>
+            <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#7c83f2] mb-6">Select — {title}</h2>
 
             <div className="relative mb-6">
               <Search className="absolute start-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
-                type="text" placeholder={t("common.search")} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                type="text" placeholder="Search" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-4 ps-12 pe-4 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-[#7c83f2]/20 transition-all"
               />
             </div>
@@ -72,7 +72,6 @@ const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedVal
 export default function OnboardingPage() {
   const router = useRouter();
   const { user, userData, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
   const fileInputRef = useRef(null);
 
   const [step, setStep] = useState(1);
@@ -147,12 +146,12 @@ export default function OnboardingPage() {
         if (uploadData.url) {
           photoUrl = uploadData.url;
         } else {
-          throw new Error(t("hub.uploadFailed"));
+          throw new Error("Upload failed.");
         }
       }
 
       // تحديث البيانات في Firestore
-      const userRef = doc(firestore, "users", uid);
+      const userRef = doc(firestore, COL.USERS, uid);
       await updateDoc(userRef, {
         university: form.university,
         major: form.major,
@@ -169,7 +168,7 @@ export default function OnboardingPage() {
       setStep(3);
     } catch (error) {
       console.error("Onboarding Sync Error:", error);
-      alert(t("onboarding.errorSaving") + ": " + error.message);
+      alert("Could not save: " + error.message);
       finalizingRef.current = false;
       setIsSubmitting(false);
     }
@@ -194,7 +193,7 @@ export default function OnboardingPage() {
           <div className="w-10 h-10 rounded-[12px] bg-[#7c83f2] flex items-center justify-center text-white shadow-lg shadow-[#7c83f2]/20">
             <TsswalLogo size={20} />
           </div>
-          <span className="font-serif text-[18px] italic font-bold text-slate-800 dark:text-slate-100">{t("common.appName")}</span>
+          <span className="font-serif text-[18px] italic font-bold text-slate-800 dark:text-slate-100">Twassel</span>
         </div>
       </header>
 
@@ -211,14 +210,14 @@ export default function OnboardingPage() {
                 <div className="w-16 h-16 bg-[#7c83f2]/10 rounded-2xl flex items-center justify-center text-[#7c83f2] mb-8">
                   <School size={32} />
                 </div>
-                <h1 className="font-serif text-3xl font-bold text-slate-800 dark:text-slate-50 mb-3">{t("onboarding.title")}</h1>
-                <p className="text-slate-500 dark:text-slate-400 mb-10 text-sm">{t("onboarding.subtitle")}</p>
+                <h1 className="font-serif text-3xl font-bold text-slate-800 dark:text-slate-50 mb-3">Complete your academic profile</h1>
+                <p className="text-slate-500 dark:text-slate-400 mb-10 text-sm">Tell us a bit more about you for a tailored experience.</p>
 
                 <div className="space-y-4">
                   {[
-                    { key: "university", label: t("groupsCreate.fieldLabel"), val: form.university, opts: UNIVERSITIES, icon: School, placeholder: t("onboarding.majorPlaceholder") },
-                    { key: "major", label: t("profile.major"), val: form.major, opts: MAJORS, icon: Book, placeholder: t("onboarding.majorPlaceholder") },
-                    { key: "level", label: t("profile.year"), val: form.level, opts: LEVELS, icon: GraduationCap, placeholder: t("onboarding.yearPlaceholder") },
+                    { key: "university", label: "Field", val: form.university, opts: UNIVERSITIES, icon: School, placeholder: "Choose your major" },
+                    { key: "major", label: "Major", val: form.major, opts: MAJORS, icon: Book, placeholder: "Choose your major" },
+                    { key: "level", label: "Academic year", val: form.level, opts: LEVELS, icon: GraduationCap, placeholder: "Choose your year" },
                   ].map((f) => (
                     <button
                       key={f.key}
@@ -242,7 +241,7 @@ export default function OnboardingPage() {
                   onClick={() => setStep(2)}
                   className="w-full mt-10 py-5 bg-[#7c83f2] text-white rounded-2xl font-bold uppercase tracking-widest text-[11px] shadow-lg shadow-[#7c83f2]/30 hover:bg-[#686ee0] disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                 >
-                  {t("common.continue")} <ArrowRight size={16} data-flip-rtl />
+                  Continue <ArrowRight size={16} data-flip-rtl />
                 </button>
               </motion.div>
             )}
@@ -254,7 +253,7 @@ export default function OnboardingPage() {
                 className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 sm:p-14 shadow-xl border border-slate-100 dark:border-slate-800"
               >
                 <button onClick={() => setStep(1)} className="flex items-center gap-2 text-slate-400 hover:text-slate-800 dark:hover:text-white mb-8 transition-colors text-xs font-bold uppercase tracking-widest">
-                  <ArrowLeft size={14} data-flip-rtl /> {t("common.back")}
+                  <ArrowLeft size={14} data-flip-rtl /> Back
                 </button>
 
                 <div className="flex flex-col items-center mb-10">
@@ -269,13 +268,13 @@ export default function OnboardingPage() {
                     <div className="absolute -bottom-2 -end-2 w-10 h-10 bg-[#7c83f2] text-white rounded-xl flex items-center justify-center shadow-lg"><Camera size={18} /></div>
                     <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handleImageChange} />
                   </div>
-                  <p className="mt-4 text-[11px] font-bold text-slate-400 uppercase tracking-widest text-center">{t("profile.avatarUpdate")}</p>
+                  <p className="mt-4 text-[11px] font-bold text-slate-400 uppercase tracking-widest text-center">Update photo</p>
                 </div>
 
                 <div className="space-y-4">
-                  <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 ms-2">{t("profile.bio")}</label>
+                  <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 ms-2">Bio</label>
                   <textarea
-                    placeholder={t("onboarding.bioPlaceholder")}
+                    placeholder="A short bio…"
                     value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })}
                     className="w-full p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-sm outline-none focus:border-[#7c83f2]/50 transition-all min-h-[120px] resize-none dark:text-white"
                   />
@@ -286,7 +285,7 @@ export default function OnboardingPage() {
                   onClick={handleFinalize}
                   className="w-full mt-10 py-5 bg-[#7c83f2] text-white rounded-2xl font-bold uppercase tracking-widest text-[11px] shadow-lg shadow-[#7c83f2]/30 hover:bg-[#686ee0] transition-all flex items-center justify-center gap-2"
                 >
-                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : t("onboarding.submit")}
+                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : "Finish"}
                 </button>
               </motion.div>
             )}
@@ -303,10 +302,10 @@ export default function OnboardingPage() {
                   <CheckCircle2 size={40} />
                 </div>
 
-                <h1 className="font-serif text-4xl font-bold text-slate-800 dark:text-slate-50 mb-4">{t("onboarding.welcome")}</h1>
+                <h1 className="font-serif text-4xl font-bold text-slate-800 dark:text-slate-50 mb-4">Welcome to Twassel</h1>
                 <p className="text-slate-500 dark:text-slate-400 mb-10 text-sm leading-relaxed">
-                  {t("profile.saved")}
-                  <span className="font-bold text-[#7c83f2] mt-2 block">{t("onboarding.welcome")}</span>
+                  Saved
+                  <span className="font-bold text-[#7c83f2] mt-2 block">Welcome to Twassel</span>
                 </p>
 
                 <button
@@ -315,7 +314,7 @@ export default function OnboardingPage() {
                   }}
                   className="w-full py-5 bg-[#7c83f2] text-white rounded-2xl font-bold uppercase tracking-widest text-[11px] shadow-lg shadow-[#7c83f2]/30 hover:bg-[#686ee0] transition-all flex items-center justify-center gap-3"
                 >
-                  <Sparkles size={16} /> {t("nav.hub")}
+                  <Sparkles size={16} /> The Hub
                 </button>
               </motion.div>
             )}
@@ -329,7 +328,6 @@ export default function OnboardingPage() {
         isOpen={modal.open} onClose={() => setModal({ ...modal, open: false })}
         title={modal.title} options={modal.options} selectedValue={form[modal.type]}
         onSelect={(val) => setForm({ ...form, [modal.type]: val })}
-        t={t}
       />
 
       <style jsx global>{`

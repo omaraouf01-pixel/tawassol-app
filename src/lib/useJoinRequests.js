@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { firestore as db } from "./firebase";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { COL } from "./collectionNames";
 
 export function useJoinRequests(groupId, isLeader) {
   const [requests, setRequests] = useState([]);
@@ -14,7 +15,7 @@ export function useJoinRequests(groupId, isLeader) {
 
     // 2. بناء الاستعلام من Firestore مباشرة
     const q = query(
-      collection(db, "join-requests"),
+      collection(db, COL.JOIN_REQUESTS),
       where("groupId", "==", groupId),
       where("status", "==", "pending")
     );

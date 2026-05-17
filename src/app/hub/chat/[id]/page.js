@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ChevronLeft } from "lucide-react";
 import { firestore as db } from "@/lib/firebase"; // محرك العميل (firestore.js صار server-only)
 import { doc, onSnapshot, collection, query, where } from "firebase/firestore";
+import { COL } from "@/lib/collectionNames";
 import { useAuth } from "@/lib/useAuth";
 import { useChat } from "@/lib/useChat";
-import { useLanguage } from "@/lib/useLanguage";
 
 import ChatHeader from "@/components/chat/ChatHeader";
 import MessageList from "@/components/chat/MessageList";
@@ -19,8 +19,10 @@ import OverseerPanel from "@/components/chat/OverseerPanel";
 export default function GroupChatPage() {
   const { id } = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const cameFromAdmin = searchParams?.get("from") === "admin";
+  const backHref = cameFromAdmin ? "/admin" : "/hub";
   const { user, userData, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
 
   const [group, setGroup] = useState(null);
   const { messages, sendMessage } = useChat({ groupId: id, user, userData, group });
@@ -32,7 +34,7 @@ export default function GroupChatPage() {
   useEffect(() => {
     if (!id || authLoading || !userData || !user?.uid) return;
 
-    const groupRef = doc(db, "groups", id);
+    const groupRef = doc(db, COL.GROUPS, id);
     const unsubGroup = onSnapshot(
       groupRef,
       (docSnap) => {
@@ -72,13 +74,15 @@ export default function GroupChatPage() {
       }
     );
 
-    const q = query(collection(db, "groups"), where("members", "array-contains", user.uid));
-    const unsubMyGroups = onSnapshot(q, (snap) => {
-      setMyGroups(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const q = query(collection(db, COL.GROUPS), where("members", "array-contains", user.uid));
+    const unsubMyGroups = onSnapshot(
+      q,
+      (snap) => setMyGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Chat] myGroups listener:", err)
+    );
 
     return () => { unsubGroup(); unsubMyGroups(); };
-  }, [id, user, userData, authLoading]);
+  }, [id, user?.uid, userData?.uid, userData?.role, authLoading]);
 
   if (authLoading || loading) return (
     <div className="h-screen flex items-center justify-center bg-cream dark:bg-black transition-colors">
@@ -87,14 +91,10 @@ export default function GroupChatPage() {
   );
 
   if (error) {
-    const title = error === "not-found" ? t("errors.notFound")
-                : error === "forbidden" ? t("errors.permission")
-                : t("errors.network");
-    const desc = error === "not-found"
-      ? t("errors.notFound")
-      : error === "forbidden"
-      ? t("errors.permission")
-      : t("errors.network");
+    const title = error === "not-found" ? "Item not found."
+                : error === "forbidden" ? "You do not have permission for this action."
+                : "Network error. Check your connection.";
+    const desc = title;
     return (
       <div className="h-screen flex items-center justify-center bg-cream dark:bg-black px-6">
         <div className="max-w-md text-center space-y-5">
@@ -104,10 +104,10 @@ export default function GroupChatPage() {
           <h2 className="text-2xl font-display italic font-bold text-ink">{title}</h2>
           <p className="text-sm text-ink-faint font-serif italic leading-relaxed">{desc}</p>
           <button
-            onClick={() => router.push("/hub")}
+            onClick={() => router.push(backHref)}
             className="px-6 py-3 bg-accent text-white rounded-xl text-[11px] font-black uppercase tracking-[0.2em] hover:bg-ink transition-all"
           >
-            {t("nav.backToHub")}
+            {cameFromAdmin ? "Back to Admin" : "Back to Hub"}
           </button>
         </div>
       </div>
@@ -137,7 +137,11 @@ export default function GroupChatPage() {
           style={{ borderBottomColor: "rgba(124, 131, 242, 0.10)" }}
         >
           <div className="flex-1 min-w-0">
-            <ChatHeader group={group} isLeader={userData?.uid === group?.leaderId} />
+            <ChatHeader
+              group={group}
+              isLeader={userData?.uid === group?.leaderId}
+              isAdmin={userData?.role === "admin"}
+            />
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <OverseerPanel

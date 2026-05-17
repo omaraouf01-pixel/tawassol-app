@@ -16,43 +16,28 @@ import NotificationCenter from "@/components/NotificationCenter";
 // ─── Firebase & Auth Logic ───
 import { useAuth } from "@/lib/useAuth";
 import { firestore } from "@/lib/firebase";
-import { useLanguage } from "@/lib/useLanguage";
 import {
   collection, addDoc, onSnapshot, query, orderBy, where,
-  serverTimestamp, limit, updateDoc, doc, increment, getDoc
+  serverTimestamp, limit, doc,
 } from "firebase/firestore";
+import { COL } from "@/lib/collectionNames";
 
 // ─── File Link Helpers (Cloudinary proxy) ───
 import { buildViewUrl, buildDownloadUrl, isViewableInBrowser } from "@/lib/fileLinks";
 import { api } from "@/lib/apiClient";
 
-const PostAvatar = ({ authorId, fallbackName }) => {
-  const [avatar, setAvatar] = useState(null);
-
-  useEffect(() => {
-    if (!authorId) return;
-    const fetchAvatar = async () => {
-      try {
-        const userDoc = await getDoc(doc(firestore, "users", authorId));
-        if (userDoc.exists()) setAvatar(userDoc.data().avatarUrl);
-      } catch (e) { console.error("Avatar fetch error:", e); }
-    };
-    fetchAvatar();
-  }, [authorId]);
-
-  return (
-    <div className="w-12 h-12 rounded-xl bg-cream dark:bg-slate-800 flex items-center justify-center text-accent font-display font-bold italic border border-sand dark:border-white/10 shadow-inner overflow-hidden shrink-0">
-      {avatar ? (
-        <img src={avatar} className="w-full h-full object-cover" alt="Author" />
-      ) : (
-        <span className="text-lg uppercase">{fallbackName ? fallbackName[0] : "?"}</span>
-      )}
-    </div>
-  );
-};
+const PostAvatar = ({ avatarUrl, fallbackName }) => (
+  <div className="w-12 h-12 rounded-xl bg-cream dark:bg-slate-800 flex items-center justify-center text-accent font-display font-bold italic border border-sand dark:border-white/10 shadow-inner overflow-hidden shrink-0">
+    {avatarUrl ? (
+      <img src={avatarUrl} className="w-full h-full object-cover" alt="Author" />
+    ) : (
+      <span className="text-lg uppercase">{fallbackName ? fallbackName[0] : "?"}</span>
+    )}
+  </div>
+);
 
 const CommentsThread = ({
-  postId, loading, comments, draft, onDraftChange, onSubmit, submitting, currentUser, t,
+  postId, loading, comments, draft, onDraftChange, onSubmit, submitting, currentUser,
 }) => {
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -71,7 +56,7 @@ const CommentsThread = ({
           </div>
         ) : comments.length === 0 ? (
           <p className="text-center text-ink-faint italic font-display text-sm py-2">
-            {t("hub.noComments")}
+            Be the first to comment.
           </p>
         ) : (
           comments.map((c) => (
@@ -116,18 +101,18 @@ const CommentsThread = ({
             value={draft}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={t("hub.commentPlaceholder")}
+            placeholder="Write a thoughtful reply…"
             disabled={submitting}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-ink-faint text-ink dark:text-white disabled:opacity-50"
           />
           <button
             onClick={onSubmit}
             disabled={submitting || !draft.trim()}
-            aria-label={t("hub.commentSend")}
+            aria-label="Reply"
             className="bg-accent text-white px-4 py-1.5 rounded-full font-bold text-[10px] uppercase tracking-widest hover:brightness-110 disabled:opacity-30 transition-all flex items-center gap-1.5 shadow shadow-accent/20"
           >
             {submitting ? <Loader2 className="animate-spin" size={12} /> : <>
-              {t("hub.commentSend")} <Send size={12} data-flip-rtl />
+              Reply <Send size={12} data-flip-rtl />
             </>}
           </button>
         </div>
@@ -139,7 +124,6 @@ const CommentsThread = ({
 export default function ScholarHub() {
   const router = useRouter();
   const { user, userData, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
   const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -164,7 +148,7 @@ export default function ScholarHub() {
 
   useEffect(() => {
     if (authLoading || !user?.uid || !userData?.uid) return;
-    const q = query(collection(firestore, "posts"), orderBy("createdAt", "desc"), limit(25));
+    const q = query(collection(firestore, COL.POSTS), orderBy("createdAt", "desc"), limit(25));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -180,7 +164,7 @@ export default function ScholarHub() {
   useEffect(() => {
     if (authLoading || !user?.uid || !userData?.uid) return;
     const q = query(
-      collection(firestore, "groups"),
+      collection(firestore, COL.GROUPS),
       where("members", "array-contains", user.uid)
     );
     const unsubscribe = onSnapshot(
@@ -196,8 +180,21 @@ export default function ScholarHub() {
   }, [authLoading, user?.uid, userData?.uid]);
 
   const handleLike = async (postId) => {
-    const postRef = doc(firestore, "posts", postId);
-    try { await updateDoc(postRef, { likes: increment(1) }); } catch (e) { console.error(e); }
+    if (!user?.uid) return;
+    // Optimistic toggle — snapshot listener will reconcile.
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id !== postId) return p;
+        const arr = Array.isArray(p.likes) ? p.likes : [];
+        const liked = arr.includes(user.uid);
+        return { ...p, likes: liked ? arr.filter((u) => u !== user.uid) : [...arr, user.uid] };
+      })
+    );
+    try {
+      await api(`/api/posts/${postId}/like`, { method: "POST" });
+    } catch (e) {
+      console.error("Like toggle error:", e);
+    }
   };
 
   const handleCreatePost = async () => {
@@ -213,17 +210,17 @@ export default function ScholarHub() {
         formData.append("file", selectedFile);
 
         const response = await fetch("/api/upload", { method: "POST", body: formData });
-        if (!response.ok) throw new Error(t("hub.uploadFailed"));
+        if (!response.ok) throw new Error("Upload failed.");
         const data = await response.json();
         fileUrl = data.url;
         fileName = selectedFile.name;
       }
 
-      await addDoc(collection(firestore, "posts"), {
+      await addDoc(collection(firestore, COL.POSTS), {
         content: newPost,
         authorId: userData.uid,
         authorName: userData.fullName,
-        authorRole: userData.major || t("roles.scholar"),
+        authorRole: userData.major || "Scholar",
         authorAvatar: userData.avatarUrl || "",
         fileUrl: fileUrl,
         fileName: fileName,
@@ -325,7 +322,7 @@ export default function ScholarHub() {
     );
   }
 
-  const firstName = userData.fullName?.split(' ')[0] || t("roles.scholar");
+  const firstName = userData.fullName?.split(' ')[0] || "Scholar";
 
   return (
     <div className="flex min-h-screen bg-cream dark:bg-black font-sans text-ink dark:text-white transition-colors duration-500 overflow-hidden">
@@ -340,7 +337,7 @@ export default function ScholarHub() {
             <Search size={18} className="text-ink-faint" />
             <input
               type="text"
-              placeholder={t("hub.searchPlaceholder")}
+              placeholder="Search research nodes..."
               className="bg-transparent outline-none text-sm w-full placeholder:text-ink-faint text-ink dark:text-white"
             />
           </div>
@@ -358,12 +355,12 @@ export default function ScholarHub() {
                   {userData.avatarUrl ? (
                     <img src={userData.avatarUrl} className="w-full h-full object-cover" alt="Me" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-accent font-bold italic text-xl uppercase">{userData.fullName[0]}</div>
+                    <div className="w-full h-full flex items-center justify-center text-accent font-bold italic text-xl uppercase">{userData?.fullName?.[0]?.toUpperCase() || "?"}</div>
                   )}
                 </div>
                 <div className="flex-1">
                   <textarea
-                    placeholder={t("hub.transmitPlaceholder", { name: firstName })}
+                    placeholder={`Transmitting new findings, ${firstName}?`}
                     value={newPost}
                     onChange={(e) => setNewPost(e.target.value)}
                     className="w-full bg-transparent outline-none text-lg min-h-[100px] py-2 resize-none font-display italic placeholder:text-ink-faint"
@@ -375,14 +372,14 @@ export default function ScholarHub() {
                         <Paperclip size={14} className="text-accent" />
                         <span className="text-xs font-bold truncate max-w-[200px]">{selectedFile.name}</span>
                       </div>
-                      <button onClick={() => setSelectedFile(null)} aria-label={t("chat.removeFile")} className="text-rose-500 p-1 hover:bg-rose-100 rounded-full transition-all">
+                      <button onClick={() => setSelectedFile(null)} aria-label="Remove file" className="text-rose-500 p-1 hover:bg-rose-100 rounded-full transition-all">
                         <X size={14} />
                       </button>
                     </div>
                   )}
 
                   <div className="flex items-center justify-between pt-6 border-t border-sand dark:border-white/5">
-                    <button onClick={() => fileInputRef.current.click()} aria-label={t("chat.attachFile")} className="p-2 rounded-xl hover:bg-cream dark:hover:bg-white/5 text-accent transition-all">
+                    <button onClick={() => fileInputRef.current.click()} aria-label="Attach an academic file" className="p-2 rounded-xl hover:bg-cream dark:hover:bg-white/5 text-accent transition-all">
                       <Paperclip size={20} />
                     </button>
                     <input type="file" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files[0])} className="hidden" />
@@ -392,7 +389,7 @@ export default function ScholarHub() {
                       disabled={isSubmitting || (!newPost.trim() && !selectedFile)}
                       className="bg-accent text-white px-8 py-3 rounded-full font-bold text-[10px] uppercase tracking-widest hover:brightness-110 disabled:opacity-30 transition-all flex items-center gap-2 shadow-lg shadow-accent/20"
                     >
-                      {isSubmitting ? <Loader2 className="animate-spin" size={14} /> : t("hub.transmit")} <Send size={14} data-flip-rtl />
+                      {isSubmitting ? <Loader2 className="animate-spin" size={14} /> : "Transmit"} <Send size={14} data-flip-rtl />
                     </button>
                   </div>
                 </div>
@@ -402,7 +399,7 @@ export default function ScholarHub() {
             {/* Posts Stream */}
             <div className="space-y-8">
               {posts.length === 0 && (
-                <p className="text-center text-ink-faint italic font-display py-12">{t("hub.noPosts")}</p>
+                <p className="text-center text-ink-faint italic font-display py-12">No posts yet.</p>
               )}
               <AnimatePresence>
                 {posts.map((post) => (
@@ -414,11 +411,11 @@ export default function ScholarHub() {
                   >
                     <div className="flex justify-between items-start mb-6">
                       <div className="flex items-center gap-4">
-                        <PostAvatar authorId={post.authorId} fallbackName={post.authorName} />
+                        <PostAvatar avatarUrl={post.authorAvatar} fallbackName={post.authorName} />
                         <div>
                           <h3 className="text-sm font-bold text-ink dark:text-slate-100">{post.authorName}</h3>
                           <p className="text-[10px] text-accent uppercase tracking-widest font-black mt-1">
-                            {post.authorRole} • <span className="text-ink-faint lowercase font-sans">{t("common.justNow")}</span>
+                            {post.authorRole} • <span className="text-ink-faint lowercase font-sans">just now</span>
                           </p>
                         </div>
                       </div>
@@ -443,7 +440,7 @@ export default function ScholarHub() {
                             </div>
                             <div className="flex flex-col pe-2">
                               <span className="text-xs font-bold text-ink dark:text-white truncate max-w-[200px]">{post.fileName}</span>
-                              <span className="text-[9px] text-ink-faint uppercase tracking-widest">{t("hub.openAsset")}</span>
+                              <span className="text-[9px] text-ink-faint uppercase tracking-widest">Open Scholarly Asset</span>
                             </div>
                           </a>
                         )}
@@ -457,16 +454,23 @@ export default function ScholarHub() {
                           </div>
                           <div className="flex flex-col pe-2">
                             <span className="text-xs font-bold text-ink dark:text-white truncate max-w-[200px]">{post.fileName}</span>
-                            <span className="text-[9px] text-ink-faint uppercase tracking-widest">{t("hub.downloadAsset")}</span>
+                            <span className="text-[9px] text-ink-faint uppercase tracking-widest">Download Scholarly Asset</span>
                           </div>
                         </a>
                       </div>
                     )}
 
                     <div className="flex items-center gap-10 border-t border-sand dark:border-white/5 pt-6">
-                      <button onClick={() => handleLike(post.id)} className="flex items-center gap-2 text-ink-faint hover:text-rose-500 transition-all text-[11px] font-bold uppercase tracking-widest group">
-                        <Heart size={18} className={post.likes > 0 ? "fill-rose-500 text-rose-500" : ""} /> {post.likes || 0}
-                      </button>
+                      {(() => {
+                        const likesArr = Array.isArray(post.likes) ? post.likes : [];
+                        const likedByMe = !!user?.uid && likesArr.includes(user.uid);
+                        const likeCount = Array.isArray(post.likes) ? likesArr.length : (post.likes || 0);
+                        return (
+                          <button onClick={() => handleLike(post.id)} className="flex items-center gap-2 text-ink-faint hover:text-rose-500 transition-all text-[11px] font-bold uppercase tracking-widest group">
+                            <Heart size={18} className={likedByMe ? "fill-rose-500 text-rose-500" : ""} /> {likeCount}
+                          </button>
+                        );
+                      })()}
                       <button
                         onClick={() => toggleComments(post.id)}
                         aria-expanded={openCommentsFor === post.id}
@@ -497,7 +501,6 @@ export default function ScholarHub() {
                             onSubmit={() => handleCommentSubmit(post.id)}
                             submitting={postingCommentFor === post.id}
                             currentUser={userData}
-                            t={t}
                           />
                         </motion.div>
                       )}

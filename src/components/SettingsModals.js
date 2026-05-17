@@ -18,11 +18,10 @@ import {
 import { auth, firestore } from "@/lib/firebase";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { doc, updateDoc } from "firebase/firestore";
-import { useLanguage } from "@/lib/useLanguage";
+import { COL } from "@/lib/collectionNames";
 
 // ─── Shared modal shell ──────────────────────────────────────────
 function ModalShell({ open, onClose, children, labelledBy }) {
-  // Lock body scroll while open
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -30,7 +29,6 @@ function ModalShell({ open, onClose, children, labelledBy }) {
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  // Close on ESC
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
@@ -97,7 +95,6 @@ function Flash({ flash }) {
 
 // ─── Security Modal ──────────────────────────────────────────────
 export function SecurityModal({ open, onClose, currentUser }) {
-  const { t } = useLanguage();
   const [sending, setSending] = useState(false);
   const [flash, setFlash] = useState(null);
 
@@ -113,18 +110,18 @@ export function SecurityModal({ open, onClose, currentUser }) {
   const handleSend = async () => {
     if (sending) return;
     if (!email) {
-      setFlash({ tone: "error", text: t("security.noEmail") });
+      setFlash({ tone: "error", text: "Academic email unavailable — please sign in again." });
       return;
     }
     setSending(true);
     setFlash(null);
     try {
       await sendPasswordResetEmail(auth, email);
-      setFlash({ tone: "ok", text: t("security.sent") });
+      setFlash({ tone: "ok", text: "Reset link sent to your email." });
       setTimeout(() => { onClose?.(); }, 1600);
     } catch (err) {
       console.error("[SECURITY_MODAL]", err);
-      setFlash({ tone: "error", text: t("security.sendError") });
+      setFlash({ tone: "error", text: "Could not send the link. Try again later." });
       setSending(false);
     }
   };
@@ -140,16 +137,16 @@ export function SecurityModal({ open, onClose, currentUser }) {
         <div className="flex-1 min-w-0">
           <h2 id="security-modal-title"
               className="text-lg font-display italic font-bold text-ink dark:text-white">
-            {t("security.title")}
+            Security Update
           </h2>
           <p className="text-xs text-ink-faint mt-1 font-serif italic leading-relaxed">
-            {t("security.subtitle")}
+            Send a secure link to reset your password
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label={t("common.close")}
+          aria-label="Close"
           className="w-9 h-9 inline-flex items-center justify-center rounded-full
                      hover:bg-sand/40 dark:hover:bg-white/5
                      text-ink-muted dark:text-slate-400 transition"
@@ -161,7 +158,7 @@ export function SecurityModal({ open, onClose, currentUser }) {
       {/* Body */}
       <div className="px-6 py-5 space-y-4">
         <p className="text-sm text-ink-muted dark:text-slate-300 leading-relaxed text-start">
-          {t("security.body")}
+          A secure password reset link will be sent to your academic email. Open the link on the same device within one hour to complete the process.
         </p>
 
         {email && (
@@ -174,7 +171,7 @@ export function SecurityModal({ open, onClose, currentUser }) {
             </span>
             <div className="flex-1 min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-faint">
-                {t("security.destination")}
+                Destination
               </p>
               <p className="text-sm text-ink dark:text-white truncate">{email}</p>
             </div>
@@ -197,7 +194,7 @@ export function SecurityModal({ open, onClose, currentUser }) {
                      hover:bg-sand/40 dark:hover:bg-white/5
                      transition disabled:opacity-60"
         >
-          {t("common.cancel")}
+          Cancel
         </button>
         <button
           type="button"
@@ -211,7 +208,7 @@ export function SecurityModal({ open, onClose, currentUser }) {
           {sending
             ? <Loader2 size={15} className="animate-spin" />
             : <Send size={15} data-flip-rtl />}
-          {sending ? t("common.sending") : t("security.sendLink")}
+          {sending ? "Sending…" : "Send link"}
         </button>
       </div>
     </ModalShell>
@@ -220,12 +217,21 @@ export function SecurityModal({ open, onClose, currentUser }) {
 
 // ─── Privacy Modal ───────────────────────────────────────────────
 const PRIVACY_OPTIONS = [
-  { value: "public",         icon: Globe, titleKey: "privacy.public",        descKey: "privacy.publicDesc" },
-  { value: "scholars_only",  icon: Users, titleKey: "privacy.scholarsOnly",  descKey: "privacy.scholarsOnlyDesc" },
+  {
+    value: "public",
+    icon: Globe,
+    title: "Public",
+    desc: "Your profile and academic links are visible to all university scholars.",
+  },
+  {
+    value: "scholars_only",
+    icon: Users,
+    title: "Node members only",
+    desc: "Your profile is only visible to peers in your shared nodes.",
+  },
 ];
 
 export function PrivacyModal({ open, onClose, currentUser }) {
-  const { t } = useLanguage();
   const initial = currentUser?.profileVisibility === "scholars_only" ? "scholars_only" : "public";
   const [choice, setChoice] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -242,25 +248,25 @@ export function PrivacyModal({ open, onClose, currentUser }) {
   const handleSave = async () => {
     if (saving) return;
     if (!currentUser?.uid) {
-      setFlash({ tone: "error", text: t("privacy.userError") });
+      setFlash({ tone: "error", text: "Could not identify user." });
       return;
     }
     setSaving(true);
     setFlash(null);
     try {
-      await updateDoc(doc(firestore, "users", currentUser.uid), {
+      await updateDoc(doc(firestore, COL.USERS, currentUser.uid), {
         profileVisibility: choice,
       });
       setFlash({
         tone: "ok",
         text: choice === "scholars_only"
-          ? t("privacy.savedScholars")
-          : t("privacy.savedPublic"),
+          ? "Saved — your profile is visible to node peers only."
+          : "Saved — your profile is visible to all university scholars.",
       });
       setTimeout(() => { onClose?.(); }, 1400);
     } catch (err) {
       console.error("[PRIVACY_MODAL]", err);
-      setFlash({ tone: "error", text: t("privacy.saveError") });
+      setFlash({ tone: "error", text: "Could not update privacy settings." });
       setSaving(false);
     }
   };
@@ -276,16 +282,16 @@ export function PrivacyModal({ open, onClose, currentUser }) {
         <div className="flex-1 min-w-0">
           <h2 id="privacy-modal-title"
               className="text-lg font-display italic font-bold text-ink dark:text-white">
-            {t("privacy.title")}
+            Privacy Level
           </h2>
           <p className="text-xs text-ink-faint mt-1 font-serif italic leading-relaxed">
-            {t("privacy.subtitle")}
+            Control who can see your academic profile
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label={t("common.close")}
+          aria-label="Close"
           className="w-9 h-9 inline-flex items-center justify-center rounded-full
                      hover:bg-sand/40 dark:hover:bg-white/5
                      text-ink-muted dark:text-slate-400 transition"
@@ -322,10 +328,10 @@ export function PrivacyModal({ open, onClose, currentUser }) {
 
               <span className="flex-1 min-w-0">
                 <span className="block text-sm font-semibold text-ink dark:text-white">
-                  {t(opt.titleKey)}
+                  {opt.title}
                 </span>
                 <span className="block text-xs text-ink-muted dark:text-slate-400 mt-0.5 leading-relaxed">
-                  {t(opt.descKey)}
+                  {opt.desc}
                 </span>
               </span>
 
@@ -355,7 +361,7 @@ export function PrivacyModal({ open, onClose, currentUser }) {
                      hover:bg-sand/40 dark:hover:bg-white/5
                      transition disabled:opacity-60"
         >
-          {t("common.cancel")}
+          Cancel
         </button>
         <button
           type="button"
@@ -369,7 +375,7 @@ export function PrivacyModal({ open, onClose, currentUser }) {
           {saving
             ? <Loader2 size={15} className="animate-spin" />
             : <CheckCircle2 size={15} />}
-          {saving ? t("common.saving") : t("common.save")}
+          {saving ? "Saving…" : "Save"}
         </button>
       </div>
     </ModalShell>

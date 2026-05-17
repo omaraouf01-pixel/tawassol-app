@@ -2,13 +2,13 @@
 
 import React from "react";
 import {
-  Github,
-  Linkedin,
+  Code2 as Github,
+  Briefcase as Linkedin,
   Globe,
   Link as LinkIcon,
-  Twitter,
-  Instagram,
-  Youtube,
+  Globe as TwitterIcon,
+  Camera as InstagramIcon,
+  PlaySquare as YoutubeIcon,
   Mail,
 } from "lucide-react";
 
@@ -19,9 +19,9 @@ const ICONS = {
   portfolio: Globe,
   website: Globe,
   link: LinkIcon,
-  twitter: Twitter,
-  instagram: Instagram,
-  youtube: Youtube,
+  twitter: TwitterIcon,
+  instagram: InstagramIcon,
+  youtube: YoutubeIcon,
   mail: Mail,
   email: Mail,
 };

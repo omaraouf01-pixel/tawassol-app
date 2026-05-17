@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { firestore as db } from "./firebase";
 import { collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
+import { COL } from "./collectionNames";
 
 /**
  * هوك احترافي لجلب الرسائل لحظياً مع منطق التجميع
@@ -11,9 +12,6 @@ export function useMessages(groupId) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // اختبار الصمامات: هل المعرف يصل للهوك؟
-    console.log("🔍 اختبار المرحلة 2: قيمة groupId هي:", groupId);
-
     if (!groupId) {
       setMessages([]);
       setLoading(false);
@@ -22,7 +20,7 @@ export function useMessages(groupId) {
 
     try {
       // 1. تحديد المجموعة الرئيسية
-      const messagesCol = collection(db, "messages");
+      const messagesCol = collection(db, COL.MESSAGES);
 
       // 2. بناء الاستعلام
       const q = query(
@@ -33,8 +31,6 @@ export function useMessages(groupId) {
 
       // 3. فتح المستمع اللحظي
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        console.log(`📦 المرحلة 2 نجحت: تم العثور على ${snapshot.docs.length} رسالة`);
-
         const rawMessages = snapshot.docs.map((doc) => {
           const data = doc.data();
           return {

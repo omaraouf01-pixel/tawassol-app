@@ -5,8 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send, Loader2, Paperclip, X, FileText } from "lucide-react";
 import { firestore } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { COL } from "@/lib/collectionNames";
 import { useAuth } from "@/lib/useAuth";
-import { useLanguage } from "@/lib/useLanguage";
 
 // MessageInput
 //  • Text + file attachment (Paperclip) — uploads through /api/upload (Cloudinary).
@@ -18,7 +18,6 @@ const MAX_FILE_MB = 25;
 
 export default function MessageInput({ groupId, group, sendMessage }) {
   const { user, userData } = useAuth();
-  const { t } = useLanguage();
   const fileInputRef = useRef(null);
 
   const [content, setContent] = useState("");
@@ -35,7 +34,7 @@ export default function MessageInput({ groupId, group, sendMessage }) {
     e.target.value = "";
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      setUploadError(t("chat.fileTooBig", { max: MAX_FILE_MB }));
+      setUploadError(`File is larger than ${MAX_FILE_MB} MB`);
       return;
     }
     setUploadError(null);
@@ -59,7 +58,7 @@ export default function MessageInput({ groupId, group, sendMessage }) {
     const res = await fetch("/api/upload", { method: "POST", body: fd });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error || t("chat.uploadFailed"));
+      throw new Error(err?.error || "Could not send");
     }
     return res.json();
   };
@@ -106,11 +105,11 @@ export default function MessageInput({ groupId, group, sendMessage }) {
           user?.uid === group?.leaderId || userData?.role === "admin";
         const moderationStatus =
           fileUrl && !isAuthorized ? "pending" : "approved";
-        await addDoc(collection(firestore, "messages"), {
+        await addDoc(collection(firestore, COL.MESSAGES), {
           groupId,
           uid: user.uid,
           content: snapshotContent,
-          senderName: userData?.fullName || t("chat.scholarFallback"),
+          senderName: userData?.fullName || "Scholar",
           role: userData?.role || "student",
           fileUrl,
           fileName,
@@ -122,7 +121,7 @@ export default function MessageInput({ groupId, group, sendMessage }) {
       }
     } catch (error) {
       console.error("[MessageInput] send failed:", error);
-      setUploadError(error?.message || t("chat.uploadFailed"));
+      setUploadError(error?.message || "Could not send");
       setContent(trimmed);
     } finally {
       setIsUploading(false);
@@ -155,14 +154,14 @@ export default function MessageInput({ groupId, group, sendMessage }) {
                 {pendingFile.name}
               </p>
               <p className="text-[9px] uppercase tracking-[0.15em] text-ink-faint">
-                {(pendingFile.size / 1024).toFixed(1)} KB · {t("chat.fileForReview")}
+                {(pendingFile.size / 1024).toFixed(1)} KB · will be queued for review
               </p>
             </div>
             <button
               type="button"
               onClick={clearPending}
               className="p-1.5 rounded-lg hover:bg-white/10 transition"
-              aria-label={t("chat.removeFile")}
+              aria-label="Remove file"
             >
               <X size={14} style={{ color: "#7c83f2" }} />
             </button>
@@ -194,8 +193,8 @@ export default function MessageInput({ groupId, group, sendMessage }) {
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isMuted || isSending}
-          title={t("chat.attachFile")}
-          aria-label={t("chat.attachFile")}
+          title="Attach an academic file"
+          aria-label="Attach an academic file"
           className="p-3 rounded-full border border-sand/30 dark:border-white/10 hover:border-accent/60 hover:bg-accent/5 transition disabled:opacity-50"
           style={{ color: "#7c83f2" }}
         >
@@ -205,7 +204,7 @@ export default function MessageInput({ groupId, group, sendMessage }) {
         <div className="flex-1 bg-paper dark:bg-white/5 border border-sand/20 dark:border-white/10 rounded-[1.5rem] px-4 py-1 flex items-center transition-all focus-within:border-accent">
           <textarea
             disabled={isMuted}
-            value={isMuted ? t("chat.mutedPlaceholder") : content}
+            value={isMuted ? "The overseer has silenced this node…" : content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -215,8 +214,8 @@ export default function MessageInput({ groupId, group, sendMessage }) {
             }}
             placeholder={
               pendingFile
-                ? t("chat.inputFileCaptionPlaceholder")
-                : t("chat.inputPlaceholder")
+                ? "Add a caption for the file (optional)…"
+                : "Signal your thoughts…"
             }
             className="w-full bg-transparent border-none py-3 text-sm focus:ring-0 resize-none max-h-32 italic font-serif placeholder:italic placeholder:font-serif placeholder:text-ink-faint"
             rows={1}
@@ -226,8 +225,8 @@ export default function MessageInput({ groupId, group, sendMessage }) {
         <button
           type="submit"
           disabled={isSending || isMuted || (!content.trim() && !pendingFile)}
-          aria-label={t("common.send")}
-          title={t("common.send")}
+          aria-label="Send"
+          title="Send"
           className={`p-4 rounded-full transition-all ${
             isMuted
               ? "bg-sand text-ink-faint"

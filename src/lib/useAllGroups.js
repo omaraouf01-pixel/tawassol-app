@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { firestore, auth } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { COL } from "./collectionNames";
 
 /**
  * ════════════════════════════════════════════════════════════════
@@ -72,7 +73,7 @@ export function useAllGroups() {
       }
 
       const q = query(
-        collection(firestore, "groups"),
+        collection(firestore, COL.GROUPS),
         where("isPublic", "==", true),
         orderBy("createdAt", "desc"),
         limit(30)

@@ -14,10 +14,10 @@ import DiscoveryGrid from "@/components/DiscoveryGrid";
 import NodeShelf from "@/components/explore/NodeShelf";
 import JoinNodeModal from "@/components/explore/JoinNodeModal";
 import { useAuth } from "@/lib/useAuth";
-import { useLanguage } from "@/lib/useLanguage";
 import { useAllGroups } from "@/lib/useAllGroups";
 import { firestore } from "@/lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { COL } from "@/lib/collectionNames";
 import { selectMajorMatched, selectHighFrequency, excludeIds } from "@/lib/relevance";
 import { api } from "@/lib/apiClient";
 
@@ -50,7 +50,6 @@ const matchesLevel = (node, level) => {
 
 export default function ScholarExplore() {
   const { userData, loading: authLoading } = useAuth();
-  const { t } = useLanguage();
   const { groups: allGroups, loading: groupsLoading } = useAllGroups();
 
   // ─── حالات الصفحة ───
@@ -85,12 +84,14 @@ export default function ScholarExplore() {
   useEffect(() => {
     if (!userData?.uid) return;
     const q = query(
-      collection(firestore, "groups"),
+      collection(firestore, COL.GROUPS),
       where("members", "array-contains", userData.uid)
     );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMyGroups(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => setMyGroups(snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Explore] myGroups listener:", err)
+    );
     return () => unsubscribe();
   }, [userData?.uid]);
 
@@ -178,10 +179,10 @@ export default function ScholarExplore() {
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <Compass size={24} style={{ color: PURPLE }} />
-                <h1 className="text-2xl font-bold font-display italic">{t("explore.title")}</h1>
+                <h1 className="text-2xl font-bold font-display italic">Explore Nodes</h1>
               </div>
               <p className="text-xs text-ink-faint font-medium uppercase tracking-widest">
-                {t("explore.subtitle")}
+                Discover new academic nodes and request to join
               </p>
             </div>
 
@@ -191,7 +192,7 @@ export default function ScholarExplore() {
                 <Search size={18} className="text-ink-faint" />
                 <input
                   type="text"
-                  placeholder={t("explore.searchPlaceholder")}
+                  placeholder="Search nodes..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="bg-transparent outline-none text-sm w-full placeholder:text-ink-faint text-ink dark:text-white"
@@ -205,8 +206,8 @@ export default function ScholarExplore() {
                   borderColor: showFilters ? PURPLE : "rgb(var(--c-sand))",
                   color: showFilters ? "#fff" : "rgb(var(--c-ink-faint))",
                 }}
-                aria-label={t("explore.allFields")}
-                title={t("explore.allFields")}
+                aria-label="All fields"
+                title="All fields"
               >
                 <SlidersHorizontal size={18} />
                 {activeFilterCount > 0 && !showFilters && (
@@ -251,10 +252,10 @@ export default function ScholarExplore() {
                         </div>
                         <div>
                           <h3 className="text-sm font-bold font-serif italic text-slate-800 dark:text-white">
-                            {t("explore.allFields")}
+                            All fields
                           </h3>
                           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 mt-0.5">
-                            {filteredNodes.length} {filteredNodes.length === 1 ? t("academic.node") : t("academic.nodes")}
+                            {filteredNodes.length} {filteredNodes.length === 1 ? "Node" : "Nodes"}
                           </p>
                         </div>
                       </div>
@@ -270,7 +271,7 @@ export default function ScholarExplore() {
                           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = PURPLE; }}
                           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = `${PURPLE}10`; }}
                         >
-                          <RotateCcw size={12} data-flip-rtl /> {t("common.retry")}
+                          <RotateCcw size={12} data-flip-rtl /> Reset
                         </button>
                       )}
                     </div>
@@ -278,7 +279,7 @@ export default function ScholarExplore() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <FilterDropdown
                         icon={School}
-                        label={t("groupsCreate.fieldLabel")}
+                        label="Field"
                         options={[ALL, ...UNIVERSITIES]}
                         labelMap={UNIVERSITY_LABELS}
                         selected={filters.university}
@@ -290,11 +291,11 @@ export default function ScholarExplore() {
                           setFilters((f) => ({ ...f, university: v }));
                           setOpenDropdown(null);
                         }}
-                        allLabel={t("common.all")}
+                        allLabel="All"
                       />
                       <FilterDropdown
                         icon={Book}
-                        label={t("profile.major")}
+                        label="Major"
                         options={[ALL, ...MAJORS]}
                         labelMap={MAJOR_LABELS}
                         selected={filters.major}
@@ -306,11 +307,11 @@ export default function ScholarExplore() {
                           setFilters((f) => ({ ...f, major: v }));
                           setOpenDropdown(null);
                         }}
-                        allLabel={t("common.all")}
+                        allLabel="All"
                       />
                       <FilterDropdown
                         icon={GraduationCap}
-                        label={t("profile.year")}
+                        label="Academic year"
                         options={[ALL, ...LEVELS]}
                         selected={filters.level}
                         isOpen={openDropdown === "level"}
@@ -321,7 +322,7 @@ export default function ScholarExplore() {
                           setFilters((f) => ({ ...f, level: v }));
                           setOpenDropdown(null);
                         }}
-                        allLabel={t("common.all")}
+                        allLabel="All"
                       />
                     </div>
                   </div>
@@ -333,8 +334,8 @@ export default function ScholarExplore() {
             {noFilters && (
               <>
                 <NodeShelf
-                  title={t("explore.myField")}
-                  subtitle={userData?.major || t("explore.myField")}
+                  title="In your field"
+                  subtitle={userData?.major || "In your field"}
                   icon={GraduationCap}
                   nodes={majorMatched}
                   onNodeClick={(node) => setSelectedNode(node)}
@@ -342,8 +343,8 @@ export default function ScholarExplore() {
                   pendingGroupIds={pendingGroupIds}
                 />
                 <NodeShelf
-                  title={t("explore.trendingNodes")}
-                  subtitle={t("explore.recentlyAdded")}
+                  title="Trending Nodes"
+                  subtitle="Recently Added"
                   icon={Flame}
                   nodes={highFrequency}
                   onNodeClick={(node) => setSelectedNode(node)}
@@ -373,10 +374,10 @@ export default function ScholarExplore() {
                       </div>
                       <div>
                         <h2 className="text-xl font-bold font-serif italic text-slate-800 dark:text-white leading-tight">
-                          {t("academic.nodes")}
+                          Nodes
                         </h2>
                         <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mt-1">
-                          {t("explore.allFields")}
+                          All fields
                         </p>
                       </div>
                     </div>
@@ -399,9 +400,9 @@ export default function ScholarExplore() {
                   >
                     <Sparkles size={32} />
                   </div>
-                  <h3 className="text-xl font-display italic font-bold mb-2">{t("explore.noResults")}</h3>
+                  <h3 className="text-xl font-display italic font-bold mb-2">No results</h3>
                   <p className="text-ink-faint text-sm max-w-xs mb-6">
-                    {t("explore.noResults")}
+                    No results
                   </p>
                   {(activeFilterCount > 0 || searchQuery) && (
                     <button
@@ -409,7 +410,7 @@ export default function ScholarExplore() {
                       className="flex items-center gap-2 px-5 py-2.5 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg transition-all hover:brightness-110"
                       style={{ backgroundColor: PURPLE, boxShadow: `0 10px 25px ${PURPLE}40` }}
                     >
-                      <RotateCcw size={12} data-flip-rtl /> {t("common.retry")}
+                      <RotateCcw size={12} data-flip-rtl /> Reset
                     </button>
                   )}
                 </motion.div>
