@@ -20,6 +20,7 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { COL } from "@/lib/collectionNames";
 import { selectMajorMatched, selectHighFrequency, excludeIds } from "@/lib/relevance";
 import { api } from "@/lib/apiClient";
+import { useTranslation } from "@/lib/i18n";
 
 // ─── البيانات الأكاديمية الموحَّدة ───
 import {
@@ -50,6 +51,7 @@ const matchesLevel = (node, level) => {
 
 export default function ScholarExplore() {
   const { userData, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
   const { groups: allGroups, loading: groupsLoading } = useAllGroups();
 
   // ─── حالات الصفحة ───
@@ -172,17 +174,17 @@ export default function ScholarExplore() {
     <div className="flex min-h-screen bg-cream dark:bg-black font-sans text-ink dark:text-white transition-colors duration-500 overflow-hidden">
       <Sidebar currentUser={userData} groups={myGroups} />
 
-      <main className="flex-1 lg:ms-[280px] h-screen overflow-hidden flex flex-col relative">
+      <main className="flex-1 md:ms-[280px] h-screen overflow-hidden flex flex-col relative">
         {/* ── Header ── */}
         <header className="px-8 py-6 bg-cream/80 dark:bg-black/60 backdrop-blur-2xl border-b border-sand dark:border-white/5 z-30">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <Compass size={24} style={{ color: PURPLE }} />
-                <h1 className="text-2xl font-bold font-display italic">Explore Nodes</h1>
+                <h1 className="text-2xl font-bold font-display italic">{t("explore.title")}</h1>
               </div>
               <p className="text-xs text-ink-faint font-medium uppercase tracking-widest">
-                Discover new academic nodes and request to join
+                {t("explore.label")}
               </p>
             </div>
 
@@ -192,7 +194,7 @@ export default function ScholarExplore() {
                 <Search size={18} className="text-ink-faint" />
                 <input
                   type="text"
-                  placeholder="Search nodes..."
+                  placeholder={t("explore.search")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="bg-transparent outline-none text-sm w-full placeholder:text-ink-faint text-ink dark:text-white"
@@ -271,7 +273,7 @@ export default function ScholarExplore() {
                           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = PURPLE; }}
                           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = `${PURPLE}10`; }}
                         >
-                          <RotateCcw size={12} data-flip-rtl /> Reset
+                          <RotateCcw size={12} data-flip-rtl /> {t("explore.reset")}
                         </button>
                       )}
                     </div>
@@ -334,8 +336,8 @@ export default function ScholarExplore() {
             {noFilters && (
               <>
                 <NodeShelf
-                  title="In your field"
-                  subtitle={userData?.major || "In your field"}
+                  title={t("explore.matched")}
+                  subtitle={userData?.major || t("explore.matched")}
                   icon={GraduationCap}
                   nodes={majorMatched}
                   onNodeClick={(node) => setSelectedNode(node)}
@@ -343,8 +345,8 @@ export default function ScholarExplore() {
                   pendingGroupIds={pendingGroupIds}
                 />
                 <NodeShelf
-                  title="Trending Nodes"
-                  subtitle="Recently Added"
+                  title={t("explore.trending")}
+                  subtitle={t("explore.trending")}
                   icon={Flame}
                   nodes={highFrequency}
                   onNodeClick={(node) => setSelectedNode(node)}
@@ -400,9 +402,9 @@ export default function ScholarExplore() {
                   >
                     <Sparkles size={32} />
                   </div>
-                  <h3 className="text-xl font-display italic font-bold mb-2">No results</h3>
+                  <h3 className="text-xl font-display italic font-bold mb-2">{t("explore.no_results")}</h3>
                   <p className="text-ink-faint text-sm max-w-xs mb-6">
-                    No results
+                    {t("explore.no_results")}
                   </p>
                   {(activeFilterCount > 0 || searchQuery) && (
                     <button

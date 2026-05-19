@@ -19,6 +19,7 @@ export const postsCol = () => adminDb.collection(COL.POSTS);
 export const notificationsCol = () => adminDb.collection(COL.NOTIFICATIONS);
 export const resourcesCol = () => adminDb.collection(COL.RESOURCES);
 export const joinRequestsCol = () => adminDb.collection(COL.JOIN_REQUESTS);
+export const reportsCol = () => adminDb.collection(COL.REPORTS);
 
 // ════════════════════════════════════════════════════════════════
 // Document Builders (Admin FieldValue)
@@ -80,6 +81,7 @@ export function buildGroupDoc(data) {
     maxMembers: Math.min(Math.max(max, 2), 200),
     leaderId: data.leaderId,
     leaderName: data.leaderName,
+    coLeaderIds: Array.isArray(data.coLeaderIds) ? data.coLeaderIds : [],
     members: Array.isArray(data.members) ? data.members : [data.leaderId],
     membersList: Array.isArray(data.membersList) ? data.membersList : [],
     memberCount: data.members?.length || 1,
@@ -123,6 +125,7 @@ export function buildPostDoc(data) {
     authorRole: data.authorRole || "Scholar",
     authorAvatar: data.authorAvatar || null,
     content: data.content,
+    tag: data.tag || "General",
     fileUrl: data.fileUrl || null,
     fileName: data.fileName || null,
     likes: data.likes || 0,

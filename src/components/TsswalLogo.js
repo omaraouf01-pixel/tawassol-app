@@ -3,28 +3,43 @@
 import React from "react";
 import { motion } from "framer-motion";
 
-export default function TsswalLogo({ size = 24, className = "" }) {
+export default function TsswalLogo({ size = 32, className = "" }) {
   return (
-    <div className={`relative flex items-center justify-center ${className}`}>
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 100 100"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="drop-shadow-[0_0_15px_rgba(99,102,241,0.3)] transition-all duration-700"
-      >
-        <path d="M20 35 H80" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
-        <path d="M50 35 V85" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
-        <motion.circle
-          cx="50"
-          cy="35"
-          r="8"
-          fill="#6366F1"
-          animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-        />
-      </svg>
-    </div>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
+      {/* خلفية مربعة ناعمة */}
+      <rect x="4" y="4" width="92" height="92" rx="26" fill="currentColor" fillOpacity="0.12" />
+
+      {/* خطوط شكل حرف T */}
+      {/* الشريط الأفقي العلوي */}
+      <line x1="22" y1="28" x2="78" y2="28" stroke="currentColor" strokeWidth="5.5" strokeLinecap="round" />
+      {/* الساق العمودية */}
+      <line x1="50" y1="28" x2="50" y2="76" stroke="currentColor" strokeWidth="5.5" strokeLinecap="round" />
+
+      {/* النقطة العلوية اليسرى */}
+      <circle cx="22" cy="28" r="9" fill="currentColor" />
+
+      {/* النقطة العلوية اليمنى */}
+      <circle cx="78" cy="28" r="9" fill="currentColor" />
+
+      {/* النقطة السفلية */}
+      <circle cx="50" cy="76" r="9" fill="currentColor" />
+
+      {/* نقطة المركز — متحركة */}
+      <motion.circle
+        cx="50"
+        cy="52"
+        r="6"
+        fill="currentColor"
+        animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+      />
+    </svg>
   );
 }

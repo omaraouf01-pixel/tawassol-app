@@ -21,6 +21,7 @@ import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
 
 import { SecurityModal, PrivacyModal } from "@/components/SettingsModals";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * SettingsMenu — compact trigger + upward popover.
@@ -38,6 +39,7 @@ import { SecurityModal, PrivacyModal } from "@/components/SettingsModals";
 export default function SettingsMenu({ currentUser }) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const { t } = useTranslation();
 
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -137,7 +139,7 @@ export default function SettingsMenu({ currentUser }) {
       router.replace("/auth");
     } catch (err) {
       console.error("[LOGOUT]", err);
-      setFlash({ tone: "error", text: "Could not log out." });
+      setFlash({ tone: "error", text: t("settings.logout_error") });
       setBusy(null);
     }
   };
@@ -202,7 +204,7 @@ export default function SettingsMenu({ currentUser }) {
                 <div className="px-4 py-3 border-b border-sand dark:border-white/5
                                 bg-cream/60 dark:bg-white/[0.02]">
                   <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
-                    Account Options
+                    {t("settings.title")}
                   </p>
                   {currentUser?.fullName && (
                     <p className="mt-1 text-xs text-ink-muted dark:text-slate-400 truncate font-serif italic">
@@ -215,22 +217,22 @@ export default function SettingsMenu({ currentUser }) {
                 <ul className="py-1.5 text-sm">
                   <MenuItem
                     icon={isDark ? Sun : Moon}
-                    label={isDark ? "Daylight" : "Night Mode"}
-                    hint={isDark ? "Daylight" : "Night Scholar"}
+                    label={isDark ? t("settings.daylight") : t("settings.night_mode")}
+                    hint={isDark ? t("settings.daylight") : t("settings.night_hint")}
                     onClick={handleToggleNight}
                   />
 
                   <MenuItem
                     icon={Shield}
-                    label="Security"
-                    hint="Send a reset link to your email"
+                    label={t("settings.security")}
+                    hint={t("settings.security_hint")}
                     onClick={handleSecurity}
                   />
 
                   <MenuItem
                     icon={Lock}
-                    label="Privacy Level"
-                    hint="Choose who can see your profile"
+                    label={t("settings.privacy")}
+                    hint={t("settings.privacy_hint")}
                     onClick={handlePrivacy}
                   />
                 </ul>
@@ -268,7 +270,7 @@ export default function SettingsMenu({ currentUser }) {
                     {busy === "logout"
                       ? <Loader2 size={15} className="animate-spin" />
                       : <LogOut size={15} data-flip-rtl />}
-                    <span>Log out</span>
+                    <span>{t("settings.logout")}</span>
                   </button>
                 </div>
                 </motion.div>

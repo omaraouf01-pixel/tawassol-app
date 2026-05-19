@@ -1,6 +1,7 @@
 import { postsCol, buildPostDoc } from "@/lib/collections";
 import { snapToObj, listSnap } from "@/lib/firestore";
 import { withAuth, withPublic, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
+import { updateUserPoints } from "@/lib/rankingSystem";
 
 // GET /api/posts?limit=50
 export const GET = withPublic(async (req) => {
@@ -21,13 +22,19 @@ export const POST = withAuth(async (req, _ctx, { uid, user }) => {
 
   const ref = await postsCol().add(
     buildPostDoc({
-      uid,
+      authorId: uid,
       authorName: user.fullName,
-      major: user.department || "",
-      text,
+      authorRole: user.department || "Scholar",
+      authorAvatar: user.avatarUrl || null,
+      content: text,
       tag,
     })
   );
+  // ── نقاط المساهمة: +5 لإنشاء منشور ──────────────────────────────────
+  updateUserPoints(uid, 5).catch(
+    (e) => console.error("[rankingSystem] post create:", e.message)
+  );
+
   const fresh = await ref.get();
   return jsonOk(snapToObj(fresh), 201);
 }, "POSTS_CREATE");

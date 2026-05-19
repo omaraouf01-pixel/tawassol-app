@@ -6,15 +6,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Send, Heart, MessageSquare,
   MoreHorizontal, Loader2, Search,
-  Paperclip, Download, Eye, X
+  Paperclip, Download, Eye, X, Reply, ShieldCheck, Flag,
 } from "lucide-react";
 
 // ─── Core Components ───
 import Sidebar from "@/components/Sidebar";
 import NotificationCenter from "@/components/NotificationCenter";
+import SearchBar from "@/components/SearchBar";
+import ReportModal from "@/components/chat/ReportModal";
 
 // ─── Firebase & Auth Logic ───
 import { useAuth } from "@/lib/useAuth";
+import { useTranslation } from "@/lib/i18n";
 import { firestore } from "@/lib/firebase";
 import {
   collection, addDoc, onSnapshot, query, orderBy, where,
@@ -25,6 +28,17 @@ import { COL } from "@/lib/collectionNames";
 // ─── File Link Helpers (Cloudinary proxy) ───
 import { buildViewUrl, buildDownloadUrl, isViewableInBrowser } from "@/lib/fileLinks";
 import { api } from "@/lib/apiClient";
+
+const timeAgo = (ts) => {
+  if (!ts) return "—";
+  const date = ts?.toDate ? ts.toDate() : new Date(ts);
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
+  return date.toLocaleDateString();
+};
 
 const PostAvatar = ({ avatarUrl, fallbackName }) => (
   <div className="w-12 h-12 rounded-xl bg-cream dark:bg-slate-800 flex items-center justify-center text-accent font-display font-bold italic border border-sand dark:border-white/10 shadow-inner overflow-hidden shrink-0">
@@ -38,13 +52,57 @@ const PostAvatar = ({ avatarUrl, fallbackName }) => (
 
 const CommentsThread = ({
   postId, loading, comments, draft, onDraftChange, onSubmit, submitting, currentUser,
+  replyTo, onSetReplyTo,
 }) => {
+  const { t } = useTranslation();
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
     }
   };
+
+  // Separate top-level from replies
+  const topLevel = comments.filter((c) => !c.replyToCommentId);
+  const getReplies = (parentId) => comments.filter((c) => c.replyToCommentId === parentId);
+
+  const CommentBubble = ({ c, isReply = false }) => (
+    <div className={`flex gap-3 ${isReply ? "ms-10 mt-2" : ""}`}>
+      <div className="w-9 h-9 rounded-xl overflow-hidden bg-cream dark:bg-slate-800 border border-sand dark:border-white/10 shrink-0 flex items-center justify-center text-accent font-bold italic">
+        {c.authorAvatar ? (
+          <img src={c.authorAvatar} alt={c.authorName} className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-sm uppercase">{c.authorName ? c.authorName[0] : "?"}</span>
+        )}
+      </div>
+      <div className="flex-1">
+        <div className="bg-cream dark:bg-white/5 rounded-2xl px-4 py-3 border border-sand dark:border-white/10">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-xs font-bold text-ink dark:text-slate-100">{c.authorName}</span>
+            {c.authorRole && (
+              <span className="text-[9px] text-accent uppercase tracking-widest font-black">{c.authorRole}</span>
+            )}
+          </div>
+          {c.replyToAuthorName && (
+            <span className="text-[10px] text-accent font-black me-1">@{c.replyToAuthorName}</span>
+          )}
+          <span className="text-[13px] text-ink-muted dark:text-slate-300 leading-relaxed font-display italic">
+            {c.content}
+          </span>
+        </div>
+        {!isReply && (
+          <button
+            onClick={() => onSetReplyTo(replyTo?.id === c.id ? null : { id: c.id, authorName: c.authorName })}
+            className={`mt-1 ms-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 transition-colors ${
+              replyTo?.id === c.id ? "text-accent" : "text-ink-faint hover:text-accent"
+            }`}
+          >
+            <Reply size={11} /> Reply
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="mt-6 pt-6 border-t border-sand dark:border-white/5">
@@ -54,37 +112,43 @@ const CommentsThread = ({
           <div className="flex justify-center py-4">
             <Loader2 className="animate-spin text-accent" size={18} />
           </div>
-        ) : comments.length === 0 ? (
+        ) : topLevel.length === 0 ? (
           <p className="text-center text-ink-faint italic font-display text-sm py-2">
-            Be the first to comment.
+            {t("hub.first_comment")}
           </p>
         ) : (
-          comments.map((c) => (
-            <div key={c.id} className="flex gap-3">
-              <div className="w-9 h-9 rounded-xl overflow-hidden bg-cream dark:bg-slate-800 border border-sand dark:border-white/10 shrink-0 flex items-center justify-center text-accent font-bold italic">
-                {c.authorAvatar ? (
-                  <img src={c.authorAvatar} alt={c.authorName} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-sm uppercase">{c.authorName ? c.authorName[0] : "?"}</span>
-                )}
-              </div>
-              <div className="flex-1 bg-cream dark:bg-white/5 rounded-2xl px-4 py-3 border border-sand dark:border-white/10">
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-xs font-bold text-ink dark:text-slate-100">{c.authorName}</span>
-                  {c.authorRole && (
-                    <span className="text-[9px] text-accent uppercase tracking-widest font-black">
-                      {c.authorRole}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[13px] text-ink-muted dark:text-slate-300 leading-relaxed font-display italic">
-                  {c.content}
-                </p>
-              </div>
+          topLevel.map((c) => (
+            <div key={c.id}>
+              <CommentBubble c={c} />
+              {getReplies(c.id).map((r) => (
+                <CommentBubble key={r.id} c={r} isReply />
+              ))}
             </div>
           ))
         )}
       </div>
+
+      {/* Reply preview strip */}
+      <AnimatePresence>
+        {replyTo && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mb-2 flex items-center gap-2 px-3 py-2 rounded-xl border-s-2 overflow-hidden"
+            style={{ background: "rgba(124,131,242,0.06)", borderColor: "#7c83f2" }}
+          >
+            <Reply size={11} style={{ color: "#7c83f2" }} />
+            <span className="text-[11px] font-serif italic text-ink dark:text-white/70 flex-1">
+              Replying to <strong>{replyTo.authorName}</strong>
+            </span>
+            <button onClick={() => onSetReplyTo(null)} className="text-ink-faint hover:text-ink">
+              <X size={12} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* New comment input */}
       <div className="flex gap-3 items-start">
@@ -101,7 +165,7 @@ const CommentsThread = ({
             value={draft}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Write a thoughtful reply…"
+            placeholder={replyTo ? `Replying to ${replyTo.authorName}…` : t("hub.reply_placeholder")}
             disabled={submitting}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-ink-faint text-ink dark:text-white disabled:opacity-50"
           />
@@ -124,6 +188,7 @@ const CommentsThread = ({
 export default function ScholarHub() {
   const router = useRouter();
   const { user, userData, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
   const [mounted, setMounted] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -133,12 +198,18 @@ export default function ScholarHub() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ─── Report / post-menu state ───
+  const [reportingPostId, setReportingPostId] = useState(null);
+  const [openMenuFor, setOpenMenuFor] = useState(null);
+
   // ─── Comments state ───
   const [openCommentsFor, setOpenCommentsFor] = useState(null);
   const [commentsByPost, setCommentsByPost] = useState({});
   const [loadingCommentsFor, setLoadingCommentsFor] = useState(null);
   const [draftComment, setDraftComment] = useState({});
   const [postingCommentFor, setPostingCommentFor] = useState(null);
+  // replyToByPost: { [postId]: { id: commentId, authorName: string } | null }
+  const [replyToByPost, setReplyToByPost] = useState({});
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -261,7 +332,8 @@ export default function ScholarHub() {
     const content = (draftComment[postId] || "").trim();
     if (!content || postingCommentFor === postId) return;
 
-    // Optimistic comment + count bump
+    const replyTo = replyToByPost[postId] || null;
+
     const tempId = `temp-${Date.now()}`;
     const optimistic = {
       id: tempId,
@@ -270,25 +342,21 @@ export default function ScholarHub() {
       authorName: userData.fullName,
       authorAvatar: userData.avatarUrl || "",
       authorRole: userData.major || "",
+      replyToCommentId: replyTo?.id || null,
+      replyToAuthorName: replyTo?.authorName || null,
       createdAt: new Date().toISOString(),
       _optimistic: true,
     };
-    setCommentsByPost((prev) => ({
-      ...prev,
-      [postId]: [...(prev[postId] || []), optimistic],
-    }));
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === postId ? { ...p, commentsCount: (p.commentsCount || 0) + 1 } : p
-      )
-    );
+    setCommentsByPost((prev) => ({ ...prev, [postId]: [...(prev[postId] || []), optimistic] }));
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: (p.commentsCount || 0) + 1 } : p));
     setDraftComment((prev) => ({ ...prev, [postId]: "" }));
+    setReplyToByPost((prev) => ({ ...prev, [postId]: null }));
     setPostingCommentFor(postId);
 
     try {
       const saved = await api(`/api/posts/${postId}/comments`, {
         method: "POST",
-        body: { content },
+        body: { content, replyToCommentId: replyTo?.id || null },
       });
       setCommentsByPost((prev) => ({
         ...prev,
@@ -296,18 +364,8 @@ export default function ScholarHub() {
       }));
     } catch (e) {
       console.error("Comment submit error:", e);
-      // Rollback
-      setCommentsByPost((prev) => ({
-        ...prev,
-        [postId]: (prev[postId] || []).filter((c) => c.id !== tempId),
-      }));
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId
-            ? { ...p, commentsCount: Math.max(0, (p.commentsCount || 1) - 1) }
-            : p
-        )
-      );
+      setCommentsByPost((prev) => ({ ...prev, [postId]: (prev[postId] || []).filter((c) => c.id !== tempId) }));
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, (p.commentsCount || 1) - 1) } : p));
       setDraftComment((prev) => ({ ...prev, [postId]: content }));
     } finally {
       setPostingCommentFor(null);
@@ -329,19 +387,22 @@ export default function ScholarHub() {
 
       <Sidebar currentUser={userData} groups={groups} />
 
-      <main className="flex-1 lg:ms-[280px] h-screen overflow-hidden flex flex-col relative">
+      <main className="flex-1 md:ms-[280px] h-screen overflow-hidden flex flex-col relative">
 
         {/* Header */}
         <header className="h-20 px-8 flex items-center justify-between bg-cream/80 dark:bg-black/60 backdrop-blur-2xl border-b border-sand dark:border-white/5 z-30 sticky top-0">
-          <div className="flex items-center gap-4 bg-paper dark:bg-white/5 px-6 py-2.5 rounded-2xl w-full max-w-md border border-sand dark:border-white/10 shadow-sm">
-            <Search size={18} className="text-ink-faint" />
-            <input
-              type="text"
-              placeholder="Search research nodes..."
-              className="bg-transparent outline-none text-sm w-full placeholder:text-ink-faint text-ink dark:text-white"
-            />
+          <SearchBar />
+          <div className="flex items-center gap-3">
+            {userData?.role === "admin" && (
+              <button
+                onClick={() => router.push("/admin")}
+                className="flex items-center gap-2 px-4 py-2 bg-accent/10 text-accent rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-accent hover:text-white transition-all border border-accent/20"
+              >
+                <ShieldCheck size={13} /> <span className="hidden sm:inline">Admin</span>
+              </button>
+            )}
+            <NotificationCenter />
           </div>
-          <NotificationCenter />
         </header>
 
         {/* Feed Content */}
@@ -399,7 +460,7 @@ export default function ScholarHub() {
             {/* Posts Stream */}
             <div className="space-y-8">
               {posts.length === 0 && (
-                <p className="text-center text-ink-faint italic font-display py-12">No posts yet.</p>
+                <p className="text-center text-ink-faint italic font-display py-12">{t("hub.no_posts")}</p>
               )}
               <AnimatePresence>
                 {posts.map((post) => (
@@ -411,15 +472,52 @@ export default function ScholarHub() {
                   >
                     <div className="flex justify-between items-start mb-6">
                       <div className="flex items-center gap-4">
-                        <PostAvatar avatarUrl={post.authorAvatar} fallbackName={post.authorName} />
+                        <button
+                          onClick={() => router.push(`/profile/${post.authorId}`)}
+                          className="focus:outline-none"
+                          aria-label={`View ${post.authorName}'s profile`}
+                        >
+                          <PostAvatar avatarUrl={post.authorAvatar} fallbackName={post.authorName} />
+                        </button>
                         <div>
-                          <h3 className="text-sm font-bold text-ink dark:text-slate-100">{post.authorName}</h3>
+                          <h3
+                            onClick={() => router.push(`/profile/${post.authorId}`)}
+                            className="text-sm font-bold text-ink dark:text-slate-100 cursor-pointer hover:text-accent transition-colors"
+                          >{post.authorName}</h3>
                           <p className="text-[10px] text-accent uppercase tracking-widest font-black mt-1">
-                            {post.authorRole} • <span className="text-ink-faint lowercase font-sans">just now</span>
+                            {post.authorRole} • <span className="text-ink-faint lowercase font-sans">{timeAgo(post.createdAt)}</span>
                           </p>
                         </div>
                       </div>
-                      <button className="p-2 text-ink-faint hover:bg-cream rounded-lg transition-colors"><MoreHorizontal size={20} /></button>
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenMenuFor(openMenuFor === post.id ? null : post.id)}
+                          className="p-2 text-ink-faint hover:bg-cream dark:hover:bg-white/5 rounded-lg transition-colors"
+                        >
+                          <MoreHorizontal size={20} />
+                        </button>
+                        <AnimatePresence>
+                          {openMenuFor === post.id && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                              transition={{ duration: 0.12 }}
+                              className="absolute end-0 top-10 z-30 w-44 bg-paper dark:bg-[#0F0F0F] border border-sand dark:border-white/10 rounded-xl shadow-xl overflow-hidden"
+                            >
+                              {post.authorId !== user?.uid && (
+                                <button
+                                  onClick={() => { setOpenMenuFor(null); setReportingPostId(post.id); }}
+                                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
+                                >
+                                  <Flag size={14} />
+                                  {t("hub.report_post")}
+                                </button>
+                              )}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
 
                     <p className="text-ink-muted dark:text-slate-300 text-[15px] leading-relaxed mb-6 px-1 font-display italic">
@@ -501,6 +599,10 @@ export default function ScholarHub() {
                             onSubmit={() => handleCommentSubmit(post.id)}
                             submitting={postingCommentFor === post.id}
                             currentUser={userData}
+                            replyTo={replyToByPost[post.id] || null}
+                            onSetReplyTo={(val) =>
+                              setReplyToByPost((prev) => ({ ...prev, [post.id]: val }))
+                            }
                           />
                         </motion.div>
                       )}
@@ -512,6 +614,21 @@ export default function ScholarHub() {
           </div>
         </div>
       </main>
+
+      {/* Report Post Modal */}
+      <ReportModal
+        isOpen={!!reportingPostId}
+        onClose={() => setReportingPostId(null)}
+        postId={reportingPostId}
+      />
+
+      {/* Close post menu on outside click */}
+      {openMenuFor && (
+        <div
+          className="fixed inset-0 z-20"
+          onClick={() => setOpenMenuFor(null)}
+        />
+      )}
 
       <style jsx global>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }

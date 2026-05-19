@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   LayoutGrid,
@@ -10,7 +10,9 @@ import {
   Plus,
   Hash,
   ChevronRight,
-  Settings
+  Settings,
+  ShieldCheck,
+  BadgeCheck,
 } from "lucide-react";
 
 import { motion } from "framer-motion";
@@ -19,15 +21,27 @@ import { signOut } from "firebase/auth";
 import TsswalLogo from "./TsswalLogo";
 import NotificationCenter from "./NotificationCenter";
 import SettingsMenu from "./SettingsMenu";
+import { useLang } from "@/lib/LanguageContext";
+import { useTranslation } from "@/lib/i18n";
 
 const ACADEMIC_PURPLE = "#7c83f2";
 
 export default function Sidebar({ currentUser, groups = [] }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { lang, setLang } = useLang();
+  const { t } = useTranslation();
 
-  // حارس واجهة: استبعاد أي مجموعة لا يكون المستخدم عضواً فيها أو مشرفاً عليها،
-  // حتى لو سرّبها الاستعلام (طبقة دفاع ثانية).
+  const [isVisible, setIsVisible] = useState(true);
+  useEffect(() => {
+    const handleResize = () => setIsVisible(window.innerWidth >= 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  if (!isVisible) return null;
+
+  // حارس واجهة: استبعاد أي مجموعة لا يكون المستخدم عضواً فيها أو مشرفاً عليها
   const uid = currentUser?.uid;
   const myGroups = uid
     ? groups.filter(
@@ -35,11 +49,14 @@ export default function Sidebar({ currentUser, groups = [] }) {
       )
     : [];
 
-  // القائمة الرئيسية للملاحة
+  // فصل المجتمعات الرسمية عن مجموعات الدراسة
+  const officialGroups = myGroups.filter((g) => g.isOfficial === true);
+  const regularGroups  = myGroups.filter((g) => !g.isOfficial);
+
   const menu = [
-    { label: "The Hub",  icon: LayoutGrid, href: "/hub" },
-    { label: "Explore",  icon: Compass,    href: "/explore" },
-    { label: "Profile",  icon: User,       href: "/profile" },
+    { label: t("nav.hub"),     icon: LayoutGrid, href: "/hub" },
+    { label: t("nav.explore"), icon: Compass,    href: "/explore" },
+    { label: t("nav.profile"), icon: User,       href: "/profile" },
   ];
 
   const handleLogout = async () => {
@@ -51,10 +68,51 @@ export default function Sidebar({ currentUser, groups = [] }) {
     }
   };
 
+  // مكوّن مشترك لعرض صف مجموعة واحدة
+  const GroupRow = ({ group, isOfficial = false }) => {
+    const isActive  = pathname === `/hub/chat/${group.id}`;
+    const isLeader  = group.leaderId === uid;
+    return (
+      <button
+        onClick={() => router.push(`/hub/chat/${group.id}`)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-ink-muted dark:text-slate-400 hover:bg-cream dark:hover:bg-white/5 transition-all text-left group cursor-pointer border-none bg-transparent"
+        style={isActive ? { background: `${ACADEMIC_PURPLE}1A`, color: ACADEMIC_PURPLE } : undefined}
+      >
+        <div
+          className="w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-colors shrink-0"
+          style={
+            isActive
+              ? { background: `${ACADEMIC_PURPLE}26`, color: ACADEMIC_PURPLE }
+              : { background: "rgba(124,131,242,0.08)", color: "#9ca3af" }
+          }
+        >
+          {isOfficial ? (
+            <BadgeCheck size={13} style={{ color: isActive ? ACADEMIC_PURPLE : "#60a5fa" }} />
+          ) : (
+            <Hash size={12} />
+          )}
+        </div>
+        <span className="text-[11px] font-semibold truncate font-display italic flex-1">
+          {group.name}
+        </span>
+        <span
+          className="shrink-0 px-1.5 py-0.5 rounded-full text-[7px] font-black uppercase tracking-[0.15em] border"
+          style={{
+            color:           ACADEMIC_PURPLE,
+            backgroundColor: `${ACADEMIC_PURPLE}14`,
+            borderColor:     `${ACADEMIC_PURPLE}33`,
+          }}
+        >
+          {isLeader ? t("sidebar.overseer") : t("sidebar.member")}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <aside className="w-[280px] h-screen bg-paper dark:bg-[#0A0A0A] border-e border-sand dark:border-white/5 fixed inset-inline-start-0 top-0 flex flex-col z-40 p-6 transition-colors duration-500 overflow-y-auto hide-scrollbar">
 
-      {/* ─── رأس الشريط الجانبي: الشعار + الإشعارات (Header: Branding + Notifications) ─── */}
+      {/* ─── رأس الشريط الجانبي ─── */}
       <div className="flex items-center justify-between mb-10 px-2">
         <div
           className="flex items-center gap-4 cursor-pointer group"
@@ -71,7 +129,7 @@ export default function Sidebar({ currentUser, groups = [] }) {
         <NotificationCenter />
       </div>
 
-      {/* ─── التنقل الرئيسي (Main Navigation) ─── */}
+      {/* ─── التنقل الرئيسي ─── */}
       <nav className="space-y-1 mb-8">
         {menu.map((item) => {
           const Icon = item.icon;
@@ -92,10 +150,25 @@ export default function Sidebar({ currentUser, groups = [] }) {
         })}
       </nav>
 
-      {/* ─── المجمعات الخاصة بي (My Communities) ─── */}
+      {/* ─── القسم 1: المجتمعات الأكاديمية الرسمية ─── */}
+      {officialGroups.length > 0 && (
+        <div className="mb-5 px-2">
+          <h3 className="text-[9px] font-black uppercase tracking-[0.3em] text-ink-faint mb-3 flex items-center gap-1.5 font-sans">
+            <BadgeCheck size={10} className="text-blue-400" />
+            Academic Hubs
+          </h3>
+          <div className="space-y-1">
+            {officialGroups.map((group) => (
+              <GroupRow key={group.id} group={group} isOfficial />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── القسم 2: مجموعات الدراسة العادية ─── */}
       <div className="mb-6 px-2">
         <h3 className="text-[9px] font-black uppercase tracking-[0.3em] text-ink-faint mb-4 flex items-center justify-between font-sans">
-          My Communities
+          {t("sidebar.communities")}
           <Plus
             size={12}
             className="cursor-pointer hover:text-accent transition-colors"
@@ -103,61 +176,55 @@ export default function Sidebar({ currentUser, groups = [] }) {
           />
         </h3>
         <div className="space-y-1">
-          {myGroups.length > 0 ? (
-            myGroups.map((group) => {
-              const isActive = pathname === `/hub/chat/${group.id}`;
-              const isLeader = group.leaderId === uid;
-              return (
-                <button
-                  key={group.id}
-                  onClick={() => router.push(`/hub/chat/${group.id}`)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-ink-muted dark:text-slate-400 hover:bg-cream dark:hover:bg-white/5 transition-all text-left group cursor-pointer border-none bg-transparent"
-                  style={isActive ? { background: `${ACADEMIC_PURPLE}1A`, color: ACADEMIC_PURPLE } : undefined}
-                >
-                  <div
-                    className="w-6 h-6 rounded bg-sand/50 dark:bg-white/10 flex items-center justify-center text-[10px] font-bold text-ink-faint group-hover:text-accent group-hover:bg-accent/10 transition-colors"
-                    style={isActive ? { background: `${ACADEMIC_PURPLE}26`, color: ACADEMIC_PURPLE } : undefined}
-                  >
-                    <Hash size={12} />
-                  </div>
-                  <span className="text-[11px] font-semibold truncate font-display italic flex-1">{group.name}</span>
-                  <span
-                    className="shrink-0 px-1.5 py-0.5 rounded-full text-[7px] font-black uppercase tracking-[0.15em] border"
-                    style={{
-                      color: ACADEMIC_PURPLE,
-                      backgroundColor: `${ACADEMIC_PURPLE}14`,
-                      borderColor: `${ACADEMIC_PURPLE}33`,
-                    }}
-                    title={isLeader ? "Overseer" : "Member"}
-                  >
-                    {isLeader ? "Overseer" : "Member"}
-                  </span>
-                </button>
-              );
-            })
+          {regularGroups.length > 0 ? (
+            regularGroups.map((group) => (
+              <GroupRow key={group.id} group={group} />
+            ))
           ) : (
-            <p className="text-[9px] text-ink-faint italic px-2">No active clusters detected.</p>
+            <p className="text-[9px] text-ink-faint italic px-2">{t("sidebar.no_clusters")}</p>
           )}
         </div>
       </div>
 
-      {/* ─── التذييل (التحكم والهوية) ─── */}
+      {/* ─── التذييل ─── */}
       <div className="mt-auto space-y-4 pt-6 border-t border-sand dark:border-white/5">
 
-        {/* شريط التحكم في النظام (System Control Dock) */}
         <div className="flex items-center justify-between px-2 mb-2">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-ink-faint">System Control</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-ink-faint">{t("sidebar.system_control")}</p>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setLang(lang === "fr" ? "en" : "fr")}
+              className="px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest
+                         border border-sand dark:border-white/10 text-accent hover:bg-accent/10 transition"
+            >
+              {lang === "fr" ? "EN" : "FR"}
+            </button>
             <SettingsMenu currentUser={currentUser} />
           </div>
         </div>
 
-        {/* كارت تعريف المستخدم (User Profile Card) */}
+        {currentUser?.role === "admin" && (
+          <button
+            onClick={() =>
+              pathname.startsWith("/admin")
+                ? router.push("/hub")
+                : router.push("/admin")
+            }
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[9px] font-bold uppercase tracking-[0.2em] transition-all border-none cursor-pointer ${
+              pathname.startsWith("/admin")
+                ? "bg-rose-500/10 hover:bg-rose-500/20 text-rose-400"
+                : "bg-accent/10 hover:bg-accent/20 text-accent"
+            }`}
+          >
+            <ShieldCheck size={13} />
+            {pathname.startsWith("/admin") ? t("sidebar.back_hub") : t("sidebar.admin_panel")}
+          </button>
+        )}
+
         <div
           onClick={() => router.push('/profile')}
           className="group p-3 bg-cream dark:bg-white/5 border border-sand dark:border-white/5 rounded-2xl flex items-center gap-3 hover:border-accent/30 transition-all cursor-pointer shadow-sm shadow-black/5"
         >
-          {/* الصورة الشخصية الحية */}
           <div className="w-9 h-9 rounded-xl bg-paper dark:bg-slate-800 flex items-center justify-center shrink-0 border border-sand dark:border-white/5 overflow-hidden">
             {currentUser?.avatarUrl ? (
               <img
@@ -183,13 +250,12 @@ export default function Sidebar({ currentUser, groups = [] }) {
           <ChevronRight size={12} className="text-sand group-hover:text-accent transition-colors" data-flip-rtl />
         </div>
 
-        {/* زر تسجيل الخروج (Logout) */}
         <button
           onClick={handleLogout}
           className="w-full flex items-center justify-center gap-2 py-2 text-ink-faint hover:text-rose-500 text-[9px] font-bold uppercase tracking-[0.3em] transition-colors bg-transparent border-none cursor-pointer"
         >
           <LogOut size={14} data-flip-rtl />
-          Terminate session
+          {t("sidebar.terminate")}
         </button>
       </div>
 

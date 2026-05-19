@@ -4,27 +4,37 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Settings, UserCheck, FileCheck2, X, Check, Loader2,
-  Edit3, Info, Lock, Save, FileText, AlertCircle, Globe, KeyRound,
+  Edit3, Info, Lock, Save, FileText, Globe, KeyRound, Flag, Trash2,
 } from "lucide-react";
 import {
-  collection, query, where, onSnapshot,
+  collection, query, where, onSnapshot, orderBy,
   doc, updateDoc, deleteDoc, arrayUnion, increment,
   addDoc, serverTimestamp,
 } from "firebase/firestore";
 import { firestore as db, auth } from "@/lib/firebase";
 import { COL } from "@/lib/collectionNames";
 import { useJoinRequests } from "@/lib/useJoinRequests";
+import { useTranslation } from "@/lib/i18n";
 
-export default function OverseerPanel({ groupId, group, isLeader }) {
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState("requests");
+export default function OverseerPanel({
+  groupId,
+  group,
+  isLeader,
+  isAdmin = false,
+  initialOpen = false,
+  initialTab = "requests",
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  const [tab, setTab] = useState(initialTab);
   const [toast, setToast] = useState("");
 
   const { requests: joinRequests } = useJoinRequests(groupId, isLeader);
 
+  const canModerate = isLeader || isAdmin;
+
   const [pendingFiles, setPendingFiles] = useState([]);
   useEffect(() => {
-    if (!groupId || !isLeader) {
+    if (!groupId || !canModerate) {
       setPendingFiles([]);
       return;
     }
@@ -40,9 +50,27 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
       setPendingFiles(onlyFiles);
     });
     return () => unsub();
-  }, [groupId, isLeader]);
+  }, [groupId, canModerate]);
 
-  const pendingCount = joinRequests.length + pendingFiles.length;
+  const [pendingReports, setPendingReports] = useState([]);
+  useEffect(() => {
+    if (!groupId || !canModerate) {
+      setPendingReports([]);
+      return;
+    }
+    const q = query(
+      collection(db, COL.REPORTS),
+      where("groupId", "==", groupId),
+      where("status", "==", "pending"),
+      orderBy("createdAt", "desc"),
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setPendingReports(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [groupId, canModerate]);
+
+  const pendingCount = joinRequests.length + pendingFiles.length + pendingReports.length;
 
   useEffect(() => {
     if (!toast) return;
@@ -50,7 +78,7 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
     return () => clearTimeout(t);
   }, [toast]);
 
-  if (!isLeader) return null;
+  if (!canModerate) return null;
 
   return (
     <>
@@ -102,6 +130,7 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
                 setTab={setTab}
                 joinCount={joinRequests.length}
                 fileCount={pendingFiles.length}
+                reportCount={pendingReports.length}
               />
 
               <div className="flex-1 overflow-y-auto p-6">
@@ -117,6 +146,9 @@ export default function OverseerPanel({ groupId, group, isLeader }) {
                 )}
                 {tab === "settings" && (
                   <SettingsTab group={group} setToast={setToast} />
+                )}
+                {tab === "reports" && (
+                  <ReportsTab reports={pendingReports} setToast={setToast} />
                 )}
               </div>
 
@@ -173,11 +205,12 @@ function PanelHeader({ group, onClose }) {
   );
 }
 
-function Tabs({ tab, setTab, joinCount, fileCount }) {
+function Tabs({ tab, setTab, joinCount, fileCount, reportCount }) {
   const items = [
-    { key: "requests", label: "Join requests", icon: UserCheck, count: joinCount },
+    { key: "requests", label: "Join requests",  icon: UserCheck,  count: joinCount },
     { key: "files",    label: "Node resources", icon: FileCheck2, count: fileCount },
-    { key: "settings", label: "Node settings",  icon: Settings, count: 0 },
+    { key: "reports",  label: "Reports",        icon: Flag,       count: reportCount },
+    { key: "settings", label: "Settings",       icon: Settings,   count: 0 },
   ];
   return (
     <div className="px-4 pt-4 bg-paper border-b border-sand">
@@ -547,6 +580,112 @@ function AccessOption({ active, onClick, icon: Icon, title, sub }) {
       <div className="text-xs font-bold italic font-display">{title}</div>
       <div className="text-[9px] uppercase tracking-wider mt-1 opacity-80">{sub}</div>
     </button>
+  );
+}
+
+const REASON_LABELS = {
+  inappropriate: "محتوى غير لائق",
+  spam: "سبام أو إعلان",
+  harassment: "تحرش أو إساءة",
+  misinformation: "معلومات مضللة",
+  other: "سبب آخر",
+};
+
+function ReportsTab({ reports, setToast }) {
+  const { t } = useTranslation();
+  const [busyId, setBusyId] = useState(null);
+
+  const dismiss = async (report) => {
+    setBusyId(report.id);
+    try {
+      await updateDoc(doc(db, COL.REPORTS, report.id), { status: "dismissed" });
+      setToast(t("admin.toast_dismissed"));
+    } catch (e) {
+      console.error(e);
+      setToast(t("admin.toast_error"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const deleteMessage = async (report) => {
+    setBusyId(report.id);
+    try {
+      await deleteDoc(doc(db, COL.MESSAGES, report.messageId));
+      await updateDoc(doc(db, COL.REPORTS, report.id), { status: "resolved" });
+      setToast(t("admin.toast_deleted"));
+    } catch (e) {
+      console.error(e);
+      setToast(t("admin.toast_error"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!reports.length) {
+    return <EmptyState icon={Flag} message="No pending reports" />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <AnimatePresence mode="popLayout">
+        {reports.map((report) => (
+          <motion.div
+            key={report.id}
+            layout
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            className="bg-paper border border-sand rounded-2xl p-4 hover:border-accent/30 transition-all"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-black uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-accent-soft text-accent">
+                    {REASON_LABELS[report.reason] || report.reason}
+                  </span>
+                </div>
+                <p className="text-[11px] font-bold text-ink italic font-display truncate">
+                  {report.reporterName}
+                </p>
+                {report.messageText && (
+                  <p className="text-[11px] text-ink-faint italic font-serif mt-1.5 leading-relaxed line-clamp-2">
+                    &ldquo;{report.messageText}&rdquo;
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Dismiss — leave message intact */}
+                <button
+                  onClick={() => dismiss(report)}
+                  disabled={busyId === report.id}
+                  className="p-2 bg-sand/40 text-ink-faint hover:bg-sand hover:text-ink rounded-lg transition-all disabled:opacity-50"
+                  title={t("admin.dismiss_report")}
+                  aria-label={t("admin.dismiss_report")}
+                >
+                  {busyId === report.id
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <X size={14} />}
+                </button>
+                {/* Delete message */}
+                <button
+                  onClick={() => deleteMessage(report)}
+                  disabled={busyId === report.id}
+                  className="p-2 bg-red-50 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
+                  title={t("admin.delete_message")}
+                  aria-label={t("admin.delete_message")}
+                >
+                  {busyId === report.id
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : <Trash2 size={14} />}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
   );
 }
 

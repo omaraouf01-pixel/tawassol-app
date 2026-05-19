@@ -2,17 +2,18 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Users, LayoutGrid, ShieldCheck, LogOut,
-  Loader2, Search, X
+  Loader2, Search, X, Home, Flag,
 } from "lucide-react";
 
 // --- استدعاءات Firebase & Auth ---
 import { auth, firestore } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, where } from "firebase/firestore";
 import { useAuth } from "@/lib/useAuth";
+import { useTranslation } from "@/lib/i18n";
 import { COL } from "@/lib/collectionNames";
 import { api } from "@/lib/apiClient";
 
@@ -21,18 +22,31 @@ import TsswalLogo from "@/components/TsswalLogo";
 import AdminPendingTable from "@/components/admin/AdminPendingTable";
 import AdminGroupsTable from "@/components/admin/AdminGroupsTable";
 import AdminUsersTable from "@/components/admin/AdminUsersTable";
+import AdminReportsTable from "@/components/admin/AdminReportsTable";
 import IDCardModal from "@/components/admin/IDCardModal";
+import UserProfileModal from "@/components/admin/UserProfileModal";
 
 export default function AdminDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { userData, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
 
   // --- States ---
-  const [tab, setTab] = useState("pending");
+  const [tab, setTab] = useState(() => {
+    // auto-switch to reports tab if linked from a notification
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("tab") === "reports") return "reports";
+    }
+    return "pending";
+  });
   const [allUsers, setAllUsers] = useState([]);
   const [allGroups, setAllGroups] = useState([]);
+  const [allReports, setAllReports] = useState([]);
   const [viewID, setViewID] = useState(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [viewProfile, setViewProfile] = useState(null);
   const [searchQuery, setSearchQuery] = useState(""); // حالة البحث الجديدة
   const [processingId, setProcessingId] = useState(null);
 
@@ -60,7 +74,16 @@ export default function AdminDashboard() {
       (snap) => setAllGroups(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     );
 
-    return () => { unsubUsers(); unsubGroups(); };
+    const unsubReports = onSnapshot(
+      query(
+        collection(firestore, COL.REPORTS),
+        where("type", "in", ["post", "group"]),
+        orderBy("createdAt", "desc")
+      ),
+      (snap) => setAllReports(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+
+    return () => { unsubUsers(); unsubGroups(); unsubReports(); };
   }, [userData]);
 
   // ✅ Approve / Reject (يعتمد على /api/admin/users/[uid]/approve|reject)
@@ -100,6 +123,7 @@ export default function AdminDashboard() {
       console.error("Logout Error:", error);
     }
   };
+
 
   // 🔍 تصفية البيانات بناءً على البحث (Search Logic)
   const filteredData = useMemo(() => {
@@ -154,8 +178,9 @@ export default function AdminDashboard() {
         <nav className="flex bg-cream dark:bg-white/5 p-1 rounded-full border border-sand dark:border-white/10 shadow-inner overflow-x-auto hide-scrollbar">
           {[
             { id: "pending", label: "Verification", icon: ShieldCheck, count: filteredData.pending.length },
-            { id: "users", label: "Scholars", icon: Users, count: filteredData.scholars.length },
-            { id: "groups", label: "Nodes", icon: LayoutGrid, count: filteredData.groups.length },
+            { id: "users",   label: "Scholars",     icon: Users,       count: filteredData.scholars.length },
+            { id: "groups",  label: "Nodes",         icon: LayoutGrid,  count: filteredData.groups.length },
+            { id: "reports", label: t("admin.tab_reports"), icon: Flag, count: allReports.filter(r => r.status === "pending").length, alert: true },
           ].map(item => (
             <button
               key={item.id}
@@ -166,12 +191,20 @@ export default function AdminDashboard() {
                 }`}
             >
               <item.icon size={14} /> {item.label}
-              <span className="opacity-30 ml-1">{item.count}</span>
+              <span className={`ml-1 ${item.alert && item.count > 0 ? "text-rose-500 font-black" : "opacity-30"}`}>
+                {item.count}
+              </span>
             </button>
           ))}
         </nav>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push("/hub")}
+            className="flex items-center gap-2 px-5 py-2.5 bg-accent/10 text-accent rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-accent hover:text-white transition-all border border-accent/20"
+          >
+            <Home size={14} /> <span className="hidden md:inline">Hub</span>
+          </button>
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 px-5 py-2.5 bg-rose-500/10 text-rose-500 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all border border-rose-500/20"
@@ -183,7 +216,7 @@ export default function AdminDashboard() {
 
       {/* ─── Main Content ─── */}
       <main className="max-w-[1400px] mx-auto p-8 lg:p-12">
-        <div className="mb-10 flex items-center justify-end">
+        <div className={`mb-10 flex items-center justify-end ${tab === "reports" ? "invisible" : ""}`}>
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint group-focus-within:text-accent transition-colors" size={16} />
             <input
@@ -226,7 +259,13 @@ export default function AdminDashboard() {
 
             {tab === "users" && (
               <motion.div key="users" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.3 }}>
-                <AdminUsersTable users={filteredData.scholars} onViewID={setViewID} />
+                <AdminUsersTable users={filteredData.scholars} onViewID={setViewID} onViewProfile={setViewProfile} />
+              </motion.div>
+            )}
+
+            {tab === "reports" && (
+              <motion.div key="reports" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.3 }}>
+                <AdminReportsTable reports={allReports} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -235,6 +274,10 @@ export default function AdminDashboard() {
 
       <AnimatePresence>
         {viewID && <IDCardModal url={viewID} onClose={() => setViewID(null)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {viewProfile && <UserProfileModal user={viewProfile} onClose={() => setViewProfile(null)} />}
       </AnimatePresence>
 
       <style jsx global>{`

@@ -6,19 +6,20 @@ import {
   Camera, Loader2, CheckCircle,
   Mail, GraduationCap, Hash, Code2 as Github, Briefcase as Linkedin, Globe,
   Pencil, X, Save, ChevronRight, CalendarDays,
-  Layers, FileText, AlertCircle,
+  Layers, FileText, AlertCircle, Trophy,
 } from "lucide-react";
 
 import { useAuth } from "@/lib/useAuth";
 import { firestore, auth } from "@/lib/firebase";
-import {
-  doc, updateDoc, collection, query, where,
-  getCountFromServer, onSnapshot,
-} from "firebase/firestore";
+import { doc, updateDoc, collection, query, where, onSnapshot } from "firebase/firestore";
+import UserBadge from "@/components/UserBadge";
+import { api } from "@/lib/apiClient";
 
 import Sidebar from "@/components/Sidebar";
 import LinkField from "@/components/LinkField";
+import SelectionModal from "@/components/SelectionModal";
 import { COL } from "@/lib/collectionNames";
+import { UNIVERSITIES, MAJORS, LEVELS } from "@/lib/academicData";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function formatJoinDate(createdAt) {
@@ -68,7 +69,9 @@ function StatCard({ icon: Icon, label, value, accent = false }) {
 function EditProfileModal({ open, onClose, userData, onSaved }) {
   const [form, setForm] = useState({
     fullName: "",
+    university: "",
     major: "",
+    level: "",
     bio: "",
     github: "",
     linkedin: "",
@@ -76,21 +79,25 @@ function EditProfileModal({ open, onClose, userData, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [picker, setPicker] = useState(null); // { field, title, options }
 
   useEffect(() => {
     if (!open || !userData) return;
     setError("");
     setForm({
-      fullName: userData.fullName || "",
-      major: userData.major || "",
-      bio: userData.bio || "",
-      github: userData.socialLinks?.github || "",
-      linkedin: userData.socialLinks?.linkedin || "",
-      portfolio: userData.socialLinks?.portfolio || "",
+      fullName:   userData.fullName  || "",
+      university: userData.university || "",
+      major:      userData.major      || "",
+      level:      userData.level || userData.academicYear || "",
+      bio:        userData.bio        || "",
+      github:     userData.socialLinks?.github    || "",
+      linkedin:   userData.socialLinks?.linkedin  || "",
+      portfolio:  userData.socialLinks?.portfolio || "",
     });
   }, [open, userData]);
 
   const handleChange = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const handlePick   = (field) => (val) => setForm((f) => ({ ...f, [field]: val }));
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -98,11 +105,11 @@ function EditProfileModal({ open, onClose, userData, onSaved }) {
     setError("");
 
     if (form.fullName.trim().length < 2) {
-      setError("Full name must be at least 2 characters.");
+      setError("Name must be at least 2 characters.");
       return;
     }
     if (form.bio.length > 500) {
-      setError("Bio must be 500 characters or less.");
+      setError("Bio cannot exceed 500 characters.");
       return;
     }
 
@@ -115,10 +122,7 @@ function EditProfileModal({ open, onClose, userData, onSaved }) {
       validateUrl(form.github, "GitHub") ||
       validateUrl(form.linkedin, "LinkedIn") ||
       validateUrl(form.portfolio, "Portfolio");
-    if (urlErr) {
-      setError(urlErr);
-      return;
-    }
+    if (urlErr) { setError(urlErr); return; }
 
     setSaving(true);
     try {
@@ -131,145 +135,200 @@ function EditProfileModal({ open, onClose, userData, onSaved }) {
         },
         body: JSON.stringify({
           fullName: form.fullName.trim(),
-          major: form.major.trim(),
-          bio: form.bio.trim(),
+          major:    form.major,
+          bio:      form.bio.trim(),
           socialLinks: {
-            github: form.github.trim(),
-            linkedin: form.linkedin.trim(),
+            github:    form.github.trim(),
+            linkedin:  form.linkedin.trim(),
             portfolio: form.portfolio.trim(),
           },
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.error || "Could not save");
+        setError(data?.error || "Failed to save profile. Please try again.");
         return;
+      }
+      if (userData?.uid) {
+        await updateDoc(doc(firestore, COL.USERS, userData.uid), {
+          university:   form.university,
+          level:        form.level,
+          academicYear: form.level,
+        });
       }
       onSaved?.();
       onClose();
     } catch (err) {
       console.error("Profile save error:", err);
-      setError("Network error. Check your connection.");
+      setError("Network error. Please check your connection.");
     } finally {
       setSaving(false);
     }
   };
 
+  const academicFields = [
+    { field: "university", label: "University",    options: UNIVERSITIES, icon: "🏛" },
+    { field: "major",      label: "Major",         options: MAJORS,       icon: "📚" },
+    { field: "level",      label: "Academic Year", options: LEVELS,       icon: "🎓" },
+  ];
+
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm p-0 md:p-6"
-          onClick={onClose}
-        >
-          <motion.form
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={handleSave}
-            initial={{ y: 40, opacity: 0, scale: 0.98 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 40, opacity: 0, scale: 0.98 }}
-            transition={{ type: "spring", damping: 28, stiffness: 280 }}
-            className="w-full md:max-w-xl bg-paper dark:bg-[#1c1a26] border border-sand dark:border-white/10
-                       rounded-t-3xl md:rounded-3xl shadow-warm overflow-hidden max-h-[92vh] flex flex-col"
+    <>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm p-0 md:p-6"
+            onClick={onClose}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-sand dark:border-white/10">
-              <div>
-                <h2 className="text-xl font-display font-bold italic text-ink dark:text-white">
-                  Edit Profile
-                </h2>
-                <p className="text-xs text-ink-faint mt-1">
-                  My Academic Profile
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-9 h-9 inline-flex items-center justify-center rounded-full
-                           hover:bg-sand/40 dark:hover:bg-white/5 text-ink-muted dark:text-slate-400 transition"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <Field label="Full name">
-                <input
-                  value={form.fullName}
-                  onChange={handleChange("fullName")}
-                  className={inputCls}
-                  placeholder="Enter your full name"
-                />
-              </Field>
-
-              <Field label="Major">
-                <input
-                  value={form.major}
-                  onChange={handleChange("major")}
-                  className={inputCls}
-                  placeholder="Major"
-                />
-              </Field>
-
-              <Field label="Bio" hint={`${form.bio.length}/500`}>
-                <textarea
-                  value={form.bio}
-                  onChange={handleChange("bio")}
-                  rows={4}
-                  maxLength={500}
-                  className={`${inputCls} font-display italic leading-relaxed resize-none`}
-                  placeholder="Tell us about your academic interests…"
-                />
-              </Field>
-
-              <div className="pt-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-accent mb-3">
-                  Professional links
-                </p>
-                <div className="space-y-3">
-                  <LinkField iconName="github"   label="GitHub"    value={form.github}    onChange={handleChange("github")}    placeholder="https://..." />
-                  <LinkField iconName="linkedin" label="LinkedIn"  value={form.linkedin}  onChange={handleChange("linkedin")}  placeholder="https://..." />
-                  <LinkField iconName="globe"    label="Portfolio" value={form.portfolio} onChange={handleChange("portfolio")} placeholder="https://..." />
+            <motion.form
+              onClick={(e) => e.stopPropagation()}
+              onSubmit={handleSave}
+              initial={{ y: 40, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 40, opacity: 0, scale: 0.98 }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="w-full md:max-w-xl bg-paper border border-sand
+                         rounded-t-3xl md:rounded-3xl shadow-warm overflow-hidden max-h-[92vh] flex flex-col"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b border-sand">
+                <div>
+                  <h2 className="text-xl font-display font-bold italic text-ink">
+                    Edit Profile
+                  </h2>
+                  <p className="text-xs text-ink-faint mt-1">
+                    Update your academic information and links
+                  </p>
                 </div>
+                <button
+                  type="button" onClick={onClose}
+                  className="w-9 h-9 inline-flex items-center justify-center rounded-full
+                             hover:bg-sand/50 text-ink-muted transition"
+                >
+                  <X size={18} />
+                </button>
               </div>
 
-              {error && (
-                <div className="flex items-start gap-2 text-sm text-rose-500 bg-rose-500/5 border border-rose-500/20 rounded-xl px-3 py-2">
-                  <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-            </div>
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
 
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-3 p-5 border-t border-sand dark:border-white/10 bg-cream/40 dark:bg-white/[0.02]">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-ink-muted dark:text-slate-300
-                           hover:bg-sand/40 dark:hover:bg-white/5 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold
-                           bg-accent text-white shadow-soft
-                           hover:brightness-110 transition disabled:opacity-60"
-              >
-                {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                {saving ? "Saving…" : "Save changes"}
-              </button>
-            </div>
-          </motion.form>
-        </motion.div>
+                {/* Full name */}
+                <Field label="Full Name">
+                  <input
+                    value={form.fullName}
+                    onChange={handleChange("fullName")}
+                    className={inputCls}
+                    placeholder="Your full name"
+                  />
+                </Field>
+
+                {/* Academic fields — GLOBALCSC picker buttons */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-accent mb-3">
+                    Academic Profile
+                  </p>
+                  <div className="space-y-2.5">
+                    {academicFields.map(({ field, label, options, icon }) => {
+                      const val = form[field];
+                      return (
+                        <button
+                          key={field}
+                          type="button"
+                          onClick={() => setPicker({ field, title: label, options })}
+                          className="w-full flex items-center justify-between
+                                     px-4 py-3.5 rounded-2xl
+                                     bg-cream border border-sand
+                                     hover:border-accent/50 hover:bg-accent/5
+                                     transition-all group text-start"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-base leading-none">{icon}</span>
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-ink-faint">
+                                {label}
+                              </p>
+                              <p className={`text-sm font-semibold mt-0.5 truncate ${val ? "text-ink" : "text-ink-faint"}`}>
+                                {val || `Select ${label}…`}
+                              </p>
+                            </div>
+                          </div>
+                          <ChevronRight size={15} className="text-ink-faint group-hover:text-accent transition shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Bio */}
+                <Field label="Bio" hint={`${form.bio.length}/500`}>
+                  <textarea
+                    value={form.bio}
+                    onChange={handleChange("bio")}
+                    rows={4}
+                    maxLength={500}
+                    className={`${inputCls} font-display italic leading-relaxed resize-none`}
+                    placeholder="Tell the community about yourself and your studies…"
+                  />
+                </Field>
+
+                {/* Links */}
+                <div className="pt-1">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-accent mb-3">
+                    Professional Links
+                  </p>
+                  <div className="space-y-3">
+                    <LinkField iconName="github"   label="GitHub"    value={form.github}    onChange={handleChange("github")}    placeholder="https://..." />
+                    <LinkField iconName="linkedin" label="LinkedIn"  value={form.linkedin}  onChange={handleChange("linkedin")}  placeholder="https://..." />
+                    <LinkField iconName="globe"    label="Portfolio" value={form.portfolio} onChange={handleChange("portfolio")} placeholder="https://..." />
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2 text-sm text-rose-500 bg-rose-500/5 border border-rose-500/20 rounded-xl px-3 py-2">
+                    <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 p-5 border-t border-sand bg-cream/40">
+                <button
+                  type="button" onClick={onClose}
+                  className="px-5 py-2.5 rounded-xl text-sm font-semibold text-ink-muted
+                             hover:bg-sand/40 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit" disabled={saving}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold
+                             bg-accent text-white shadow-soft hover:brightness-110 transition disabled:opacity-60"
+                >
+                  {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Academic pickers — rendered outside the form so they layer correctly */}
+      {picker && (
+        <SelectionModal
+          isOpen={!!picker}
+          onClose={() => setPicker(null)}
+          title={picker.title}
+          options={picker.options}
+          selectedValue={form[picker.field]}
+          onSelect={handlePick(picker.field)}
+        />
       )}
-    </AnimatePresence>
+    </>
   );
 }
 
@@ -327,30 +386,8 @@ export default function ProfilePage() {
 
     const fetchStats = async () => {
       try {
-        const groupsQuery = query(
-          collection(firestore, COL.GROUPS),
-          where("members", "array-contains", user.uid)
-        );
-        const groupsSnap = await getCountFromServer(groupsQuery);
-
-        let resourcesCount = 0;
-        try {
-          const resQuery = query(
-            collection(firestore, COL.RESOURCES),
-            where("uploadedBy", "==", user.uid)
-          );
-          const resSnap = await getCountFromServer(resQuery);
-          resourcesCount = resSnap.data().count;
-        } catch {
-          // collection may not exist or rules may block — degrade silently to 0
-        }
-
-        if (!cancelled) {
-          setStats({
-            groupsCount: groupsSnap.data().count,
-            resourcesCount,
-          });
-        }
+        const data = await api("/api/profile/stats");
+        if (!cancelled) setStats(data);
       } catch (e) {
         console.error("Stats fetch error:", e);
       }
@@ -415,7 +452,7 @@ export default function ProfilePage() {
 
       <Sidebar currentUser={userData} groups={groups} />
 
-      <main className="flex-1 lg:ms-[280px] h-screen overflow-y-auto hide-scrollbar
+      <main className="flex-1 md:ms-[280px] h-screen overflow-y-auto hide-scrollbar
                        pb-24 px-5 pt-6 md:px-10 md:pt-10 lg:px-14">
         <div className="max-w-5xl mx-auto">
 
@@ -423,10 +460,10 @@ export default function ProfilePage() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent">
-                Academic Node
+                Scholar Profile
               </p>
               <h1 className="text-2xl md:text-3xl font-display italic font-bold mt-1 text-ink dark:text-white">
-                My Academic Profile
+                My Profile
               </h1>
             </div>
           </div>
@@ -493,9 +530,12 @@ export default function ProfilePage() {
 
               {/* Identity text */}
               <div className="flex-1 text-center md:text-start">
-                <h2 className="text-3xl md:text-4xl font-display italic font-bold leading-tight text-ink dark:text-white">
-                  {userData.fullName}
-                </h2>
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+                  <h2 className="text-3xl md:text-4xl font-display italic font-bold leading-tight text-ink dark:text-white">
+                    {userData.fullName}
+                  </h2>
+                  <UserBadge rank={userData.rank} size="lg" />
+                </div>
                 <p className="mt-2 text-sm md:text-base text-accent font-semibold">
                   {academicTitle}
                 </p>
@@ -512,6 +552,10 @@ export default function ProfilePage() {
                   <span className="inline-flex items-center gap-1.5">
                     <GraduationCap size={13} className="text-accent" />
                     {userData.university || "University of Oran 1"}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarDays size={13} className="text-accent" />
+                    {userData.academicYear || "Year not set"}
                   </span>
                 </div>
 
@@ -556,10 +600,11 @@ export default function ProfilePage() {
           </motion.section>
 
           {/* ─── Stats Grid ──────────────────────────────────── */}
-          <section className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard icon={Layers} label="Nodes Joined" value={stats.groupsCount} accent />
-            <StatCard icon={FileText} label="Resources" value={stats.resourcesCount} />
-            <StatCard icon={CalendarDays} label="Joined" value={joinDate} />
+          <section className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <StatCard icon={Trophy}       label="Contribution Points" value={userData?.points ?? 0} accent />
+            <StatCard icon={Layers}       label="Nodes Joined"        value={stats.groupsCount} />
+            <StatCard icon={FileText}     label="Resources Uploaded"  value={stats.resourcesCount} />
+            <StatCard icon={CalendarDays} label="Member Since"        value={joinDate} />
           </section>
 
           {/* ─── Bio + Links Grid ────────────────────────────── */}
@@ -569,7 +614,7 @@ export default function ProfilePage() {
                             bg-paper dark:bg-white/[0.04] p-7 shadow-soft transition-colors duration-500">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-accent">
-                  Academic Bio
+                  About
                 </p>
                 <button
                   onClick={() => setEditing(true)}
@@ -585,7 +630,7 @@ export default function ProfilePage() {
                 </p>
               ) : (
                 <p className="font-display italic text-ink-faint">
-                  No bio yet. Add a short note about your research interests, projects, and what you're studying.
+                  No bio yet. Tell the community about yourself.
                 </p>
               )}
             </div>
@@ -614,7 +659,7 @@ export default function ProfilePage() {
                   onClick={() => setEditing(true)}
                   className="w-full text-left text-sm text-ink-faint hover:text-accent transition"
                 >
-                  Add GitHub, LinkedIn, or a portfolio link to showcase your work.
+                  Add your GitHub, LinkedIn, or portfolio link.
                 </button>
               )}
             </div>

@@ -4,70 +4,21 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Camera, Book, School, GraduationCap, Check,
-  Search, X, ArrowRight, ArrowLeft, Loader2,
+  Camera, Book, School, GraduationCap,
+  ArrowRight, ArrowLeft, Loader2,
   Sparkles, User, CheckCircle2
 } from "lucide-react";
 
 // Firebase
-import { auth, firestore } from "@/lib/firebase";
-import { doc, updateDoc } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 import { useAuth } from "@/lib/useAuth";
-import { COL } from "@/lib/collectionNames";
 
 // Academic Data — Single Source of Truth
 import { UNIVERSITIES, MAJORS, LEVELS } from "@/lib/academicData";
 
 // Components
 import TsswalLogo from "@/components/TsswalLogo";
-
-const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedValue }) => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const filtered = options.filter(opt => opt.toLowerCase().includes(searchTerm.toLowerCase()));
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md"
-        >
-          <motion.div
-            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-            className="w-full max-w-md bg-[#F8F8F5] dark:bg-[#0a0a0b] border border-slate-200 dark:border-white/5 rounded-[2.5rem] p-8 shadow-2xl relative"
-          >
-            <button onClick={onClose} aria-label="Close" className="absolute top-8 end-8 text-slate-400 hover:text-[#7c83f2] transition-colors">
-              <X size={20} />
-            </button>
-            <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#7c83f2] mb-6">Select — {title}</h2>
-
-            <div className="relative mb-6">
-              <Search className="absolute start-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                type="text" placeholder="Search" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-4 ps-12 pe-4 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-[#7c83f2]/20 transition-all"
-              />
-            </div>
-
-            <div className="max-h-[250px] overflow-y-auto space-y-2 pe-2 custom-scrollbar">
-              {filtered.map((opt) => (
-                <button
-                  key={opt} onClick={() => { onSelect(opt); onClose(); setSearchTerm(""); }}
-                  className={`w-full text-start p-4 rounded-xl text-sm font-semibold transition-all flex justify-between items-center ${selectedValue === opt
-                    ? "bg-[#7c83f2] text-white shadow-lg"
-                    : "bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"
-                    }`}
-                >
-                  {opt} {selectedValue === opt && <Check size={16} />}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-};
+import SelectionModal from "@/components/SelectionModal";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -129,7 +80,6 @@ export default function OnboardingPage() {
     finalizingRef.current = true;
     setIsSubmitting(true);
     try {
-      const uid = auth.currentUser.uid;
       let photoUrl = userData?.avatarUrl || "";
 
       if (imageFile) {
@@ -150,21 +100,29 @@ export default function OnboardingPage() {
         }
       }
 
-      // تحديث البيانات في Firestore
-      const userRef = doc(firestore, COL.USERS, uid);
-      await updateDoc(userRef, {
-        university: form.university,
-        major: form.major,
-        level: form.level,
-        bio: form.bio,
-        avatarUrl: photoUrl,
-        onboarded: true,
-        status: "active", // تغيير الحالة إلى نشط
-        updatedAt: new Date()
+      // استدعاء API لحفظ البيانات وإنشاء المجتمعات الأكاديمية الرسمية تلقائياً
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch("/api/user/setup", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          university: form.university,
+          major:      form.major,
+          level:      form.level,
+          bio:        form.bio,
+          avatarUrl:  photoUrl || null,
+        }),
       });
 
-      // بمجرد انتهاء التحديث، ننتقل للمرحلة 3
-      // بفضل التعديلات في useAuth.js وهذا المكون، لن يتم توجيهك تلقائياً
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Setup failed. Please try again.");
+      }
+
+      // بمجرد نجاح الـ API، ننتقل للمرحلة 3
       setStep(3);
     } catch (error) {
       console.error("Onboarding Sync Error:", error);
@@ -330,10 +288,6 @@ export default function OnboardingPage() {
         onSelect={(val) => setForm({ ...form, [modal.type]: val })}
       />
 
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(124, 131, 242, 0.2); border-radius: 10px; }
-      `}</style>
     </div>
   );
 }

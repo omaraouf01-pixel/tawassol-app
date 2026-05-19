@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   collection,
   query,
@@ -15,14 +15,10 @@ import { COL } from "./collectionNames";
  * ════════════════════════════════════════════════════════════════
  *  useMyGroups — liste real-time des groupes dont je suis membre
  * ════════════════════════════════════════════════════════════════
- *  Listener Firestore branché sur :
- *    where("members", "array-contains", uid)
- *    where("status", "==", "active")
- *    orderBy("updatedAt", "desc")
- *
- *  → Quand un nouveau message est posté dans un groupe (qui fait bump
- *    updatedAt), le groupe remonte automatiquement en haut de la liste
- *    sur tous les appareils connectés.
+ *  Retourne trois listes :
+ *    - groups        : toutes les groupes (rétrocompatibilité)
+ *    - officialGroups: groupes officiels (isOfficial: true)
+ *    - regularGroups : groupes créés par les étudiants
  * ════════════════════════════════════════════════════════════════
  */
 export function useMyGroups() {
@@ -40,7 +36,6 @@ export function useMyGroups() {
     let unsubscribeSnap = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      // Nettoyer un éventuel ancien listener
       if (unsubscribeSnap) {
         unsubscribeSnap();
         unsubscribeSnap = null;
@@ -92,5 +87,15 @@ export function useMyGroups() {
     };
   }, []);
 
-  return { groups, loading, error };
+  // Derived splits — computed on every groups update, not on every render
+  const officialGroups = useMemo(
+    () => groups.filter((g) => g.isOfficial === true),
+    [groups]
+  );
+  const regularGroups = useMemo(
+    () => groups.filter((g) => !g.isOfficial),
+    [groups]
+  );
+
+  return { groups, officialGroups, regularGroups, loading, error };
 }

@@ -16,7 +16,8 @@ export const AuthProvider = ({ children }) => {
   const router = useRouter();
   const pathname = usePathname();
 
-  // ─── 1. مراقبة حالة الجلسة والتوكن (كما هي) ───
+  // ─── 1. مراقبة حالة الجلسة والتوكن ───
+  // يعمل مرة واحدة فقط — لا يعتمد على pathname/router لتجنب إعادة التسجيل عند كل تنقل
   useEffect(() => {
     const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
       setLoading(true);
@@ -50,81 +51,78 @@ export const AuthProvider = ({ children }) => {
       } else {
         setUser(null);
         setUserData(null);
-        // إذا لم يكن هناك مستخدم وهو ليس في صفحة عامة، يتم توجيهه للـ Auth
-        if (pathname !== "/" && pathname !== "/auth") {
-          router.replace("/auth");
-        }
       }
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [pathname, router]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── 2. المستمع اللحظي + إجبار تحديث التوكن عند تغير الحالة ───
   useEffect(() => {
     if (!user) return;
 
     let lastStatus = null;
+    let unsub;
 
-    const unsub = onSnapshot(
-      doc(db, COL.USERS, user.uid),
-      async (snapshot) => {
-        if (!snapshot.exists()) return;
-        const data = snapshot.data();
+    // نجبر استرجاع التوكن أولاً حتى تتعرف Firestore على الجلسة قبل بدء الـ listener
+    user.getIdToken().then(() => {
+      unsub = onSnapshot(
+        doc(db, COL.USERS, user.uid),
+        async (snapshot) => {
+          if (!snapshot.exists()) return;
+          const data = snapshot.data();
 
-        // إذا تغيرت الحالة (مثلاً pending → active بعد موافقة الـ Admin)،
-        // اطلب توكن جديد لتتزامن الـ Custom Claims قبل تحديث userData
-        // حتى لا يطلق منطق التوجيه قبل أن تكون قواعد Firestore جاهزة.
-        if (lastStatus !== null && lastStatus !== data.status) {
-          try {
-            await auth.currentUser?.getIdToken(true);
-          } catch (e) {
-            console.warn("[Auth] Token refresh failed:", e.message);
+          // إذا تغيرت الحالة (مثلاً pending → active بعد موافقة الـ Admin)،
+          // اطلب توكن جديد لتتزامن الـ Custom Claims قبل تحديث userData
+          // حتى لا يطلق منطق التوجيه قبل أن تكون قواعد Firestore جاهزة.
+          if (lastStatus !== null && lastStatus !== data.status) {
+            try {
+              await auth.currentUser?.getIdToken(true);
+            } catch (e) {
+              console.warn("[Auth] Token refresh failed:", e.message);
+            }
           }
+          lastStatus = data.status;
+          setUserData(data);
+        },
+        (error) => {
+          console.error("[Auth] Snapshot Error:", error);
         }
-        lastStatus = data.status;
-        setUserData(data);
-      },
-      (error) => {
-        console.error("[Auth] Snapshot Error:", error);
-      }
-    );
+      );
+    });
 
-    return () => unsub();
+    return () => unsub?.();
   }, [user]);
 
-  // ─── 3. منطق التوجيه الذكي (الإصلاح الجوهري هنا) ───
+  // ─── 3. منطق التوجيه الذكي ───
   useEffect(() => {
-    if (loading || !userData) return;
+    if (loading) return;
 
-    const status = userData.status;
-    const onboarded = !!userData.onboarded;
     const path = pathname;
+    const PUBLIC_PATHS = ["/", "/auth"];
 
-    // 🛡️ السماح للمستخدم بالبقاء في /onboarding لرؤية رسالة النجاح بعد الإنهاء.
-    if (status === "active" && onboarded && path === "/onboarding") {
+    // لا مستخدم → توجيه لصفحة الدخول إن لم يكن في صفحة عامة
+    if (!userData) {
+      if (!PUBLIC_PATHS.includes(path)) {
+        router.replace("/auth");
+      }
       return;
     }
 
-    // حالة Onboarding القديمة: التأكد من بقاء المستخدم في الصفحة
+    const status = userData.status;
+    const onboarded = !!userData.onboarded;
+
+    // 🛡️ السماح بالبقاء في /onboarding بعد الإنهاء مباشرةً
+    if (status === "active" && onboarded && path === "/onboarding") return;
+
     if (status === "onboarding" && path !== "/onboarding") {
       router.replace("/onboarding");
-    }
-
-    // حالة Pending: المستخدم لم يُعتمد بعد
-    else if (status === "pending" && path !== "/pending" && path !== "/onboarding") {
+    } else if (status === "pending" && path !== "/pending" && path !== "/onboarding") {
       router.replace("/pending");
-    }
-
-    // ✅ الإصلاح: مستخدم مُعتمد لكنه لم يكمل التهيئة بعد → دائماً إلى /onboarding
-    //    حتى لو كان حالياً في /pending (وهذا هو سيناريو لحظة موافقة الـ Admin)
-    else if (status === "active" && !onboarded && path !== "/onboarding") {
+    } else if (status === "active" && !onboarded && path !== "/onboarding") {
       router.replace("/onboarding");
-    }
-
-    // حالة Active + Onboarded: التوجيه للـ Hub من صفحات الدخول/الانتظار
-    else if (status === "active" && onboarded && (path === "/auth" || path === "/pending")) {
+    } else if (status === "active" && onboarded && (path === "/auth" || path === "/pending")) {
       router.replace("/hub");
     }
   }, [userData, loading, pathname, router]);

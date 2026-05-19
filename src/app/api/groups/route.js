@@ -1,6 +1,7 @@
 import { groupsCol, usersCol, buildGroupDoc } from "@/lib/collections";
 import { FieldValue, listSnap } from "@/lib/firestore";
 import { withAuth, withPublic, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
+import { updateUserPoints } from "@/lib/rankingSystem";
 
 /**
  * GET /api/groups
@@ -64,7 +65,7 @@ function formatGroup(g) {
 export const POST = withAuth(async (req, _ctx, { uid, user }) => {
   const body = await safeJson(req);
   const { name, subject, description, rules, tags, questions, maxMembers, accessType } = body;
-  if (!name || !subject) return jsonError("Missing name or subject");
+  if (!name) return jsonError("Missing name");
   if (!user) return jsonError("User not found", 404);
 
   const doc = await groupsCol().add(
@@ -94,6 +95,11 @@ export const POST = withAuth(async (req, _ctx, { uid, user }) => {
     const q = await usersCol().where("uid", "==", uid).limit(1).get();
     if (!q.empty) await q.docs[0].ref.update({ groups: FieldValue.arrayUnion(doc.id) });
   }
+
+  // ── نقاط المساهمة: +15 لإنشاء مجموعة ────────────────────────────────
+  updateUserPoints(uid, 15).catch(
+    (e) => console.error("[rankingSystem] group create:", e.message)
+  );
 
   return jsonOk({ id: doc.id, success: true }, 201);
 }, "GROUPS_CREATE");

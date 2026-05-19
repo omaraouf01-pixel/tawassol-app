@@ -29,6 +29,7 @@ import {
 } from "firebase/firestore";
 
 import { useAuth } from "@/lib/useAuth";
+import { useTranslation } from "@/lib/i18n";
 
 const PURPLE = "#7c83f2";
 const CREAM = "#F8F8F5";
@@ -66,6 +67,7 @@ function formatWhen(createdAt) {
 export default function NotificationCenter() {
   const router = useRouter();
   const { userData } = useAuth();
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const wrapRef = useRef(null);
@@ -165,10 +167,10 @@ export default function NotificationCenter() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div className="text-start">
                 <h3 className="text-sm font-bold text-slate-800 leading-none">
-                  Notifications
+                  {t("notif.title")}
                 </h3>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400 mt-1.5">
-                  {unreadCount > 0 ? `${unreadCount} Pending` : "No notifications"}
+                  {unreadCount > 0 ? `${unreadCount} Pending` : t("notif.empty")}
                 </p>
               </div>
               {unreadCount > 0 && (
@@ -181,7 +183,7 @@ export default function NotificationCenter() {
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = `${PURPLE}22`)}
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = `${PURPLE}14`)}
                 >
-                  <CheckCheck size={13} /> Mark all as read
+                  <CheckCheck size={13} /> {t("notif.mark_all")}
                 </button>
               )}
             </div>
@@ -196,9 +198,9 @@ export default function NotificationCenter() {
                   >
                     <Inbox size={20} strokeWidth={1.6} />
                   </div>
-                  <p className="text-sm font-semibold text-slate-700">No notifications</p>
+                  <p className="text-sm font-semibold text-slate-700">{t("notif.empty")}</p>
                   <p className="text-xs font-serif italic text-slate-400 leading-relaxed">
-                    Notifications
+                    {t("notif.title")}
                   </p>
                 </li>
               ) : (
@@ -247,7 +249,7 @@ export default function NotificationCenter() {
                             </p>
                           )}
                           <div className="flex items-center gap-1.5 mt-2 text-[10px] font-medium text-slate-400">
-                            <span>{formatWhen(n.createdAt)}</span>
+                            <span>{formatWhen(n.createdAt).replace("just now", t("notif.just_now"))}</span>
                             {n.link && (
                               <ChevronRight
                                 size={11}

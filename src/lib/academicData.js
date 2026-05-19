@@ -47,7 +47,7 @@ export const MAJOR_LABELS = {
 };
 
 // ─── المستويات (Compact codes) ─────────────────────────────────
-export const LEVELS = ["L1", "L2", "L3", "M1", "M2"];
+export const LEVELS = ["l1", "l2", "l3", "m1", "m2"];
 
 // ─── الثابت "All" المستعمل في الفلاتر ─────────────────────────
 export const ALL = "All";

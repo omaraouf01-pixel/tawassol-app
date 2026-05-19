@@ -1,6 +1,7 @@
 import { groupsCol, resourcesCol } from "@/lib/collections";
 import { withAuth, jsonOk, jsonError, safeJson } from "@/lib/withAuth";
 import { notifyUser } from "@/lib/serverNotify";
+import { updateUserPoints } from "@/lib/rankingSystem";
 
 async function leaderGuard(uid, params) {
   const gSnap = await groupsCol().doc(params.id).get();
@@ -25,6 +26,13 @@ export const PATCH = withAuth(async (req, { params }, { uid }) => {
   const resource = snap.data();
   const nextStatus = action === "approve" ? "approved" : "rejected";
   await ref.update({ status: nextStatus });
+
+  // ── نقاط المساهمة: +20 موافقة / -10 رفض ──────────────────────────────
+  if (resource.uid) {
+    updateUserPoints(resource.uid, action === "approve" ? 20 : -10).catch(
+      (e) => console.error("[rankingSystem] resource review:", e.message)
+    );
+  }
 
   // File Updates — notify the uploader.
   if (resource.uid && resource.uid !== uid) {

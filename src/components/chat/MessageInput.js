@@ -1,22 +1,18 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Paperclip, X, FileText } from "lucide-react";
+import { Send, Loader2, Paperclip, X, FileText, Reply, Smile, Megaphone } from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 import { firestore } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { COL } from "@/lib/collectionNames";
 import { useAuth } from "@/lib/useAuth";
 
-// MessageInput
-//  • Text + file attachment (Paperclip) — uploads through /api/upload (Cloudinary).
-//  • Optimistic UI via the `sendMessage` prop; falls back to a direct addDoc.
-//  • Attachments are always created as `pending` (Firestore rules enforce this).
-
-const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_MB = 25;
 
-export default function MessageInput({ groupId, group, sendMessage }) {
+export default function MessageInput({ groupId, group, sendMessage, replyTo, onClearReply }) {
   const { user, userData } = useAuth();
   const fileInputRef = useRef(null);
 
@@ -25,9 +21,57 @@ export default function MessageInput({ groupId, group, sendMessage }) {
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const emojiRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (emojiRef.current && !emojiRef.current.contains(e.target)) {
+        setShowEmoji(false);
+      }
+    };
+    if (showEmoji) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showEmoji]);
+
+  const handleEmojiClick = (emojiData) => {
+    const emoji = emojiData.emoji;
+    const textarea = textareaRef.current;
+    if (!textarea) { setContent((c) => c + emoji); return; }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newContent = content.slice(0, start) + emoji + content.slice(end);
+    setContent(newContent);
+    setTimeout(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+      textarea.focus();
+    }, 0);
+  };
+
+  const isAdmin = userData?.role === "admin";
+
+  // قناة الجامعة: الطلاب لا يمكنهم الكتابة — إعلانات فقط من الأدمن
+  const isUniversityAnnouncement =
+    group?.officialType === "university" && !isAdmin;
 
   const isMuted =
-    group?.isReadOnly && user?.uid !== group?.leaderId && userData?.role !== "admin";
+    (group?.isReadOnly && user?.uid !== group?.leaderId && !isAdmin) ||
+    isUniversityAnnouncement;
+
+  // عرض لافتة الإعلانات بدلاً من حقل الإدخال لقنوات الجامعة
+  if (isUniversityAnnouncement) {
+    return (
+      <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border border-[#7c83f2]/20 bg-[#7c83f2]/5">
+        <div className="w-8 h-8 rounded-xl bg-[#7c83f2]/10 flex items-center justify-center shrink-0">
+          <Megaphone size={15} className="text-[#7c83f2]" />
+        </div>
+        <p className="text-[11px] font-serif italic text-ink-muted dark:text-slate-400 leading-snug">
+          This channel is reserved for official academic announcements only.
+        </p>
+      </div>
+    );
+  }
 
   const handlePickFile = (e) => {
     const file = e.target.files?.[0];
@@ -38,12 +82,7 @@ export default function MessageInput({ groupId, group, sendMessage }) {
       return;
     }
     setUploadError(null);
-    setPendingFile({
-      file,
-      name: file.name,
-      type: file.type || "application/octet-stream",
-      size: file.size,
-    });
+    setPendingFile({ file, name: file.name, type: file.type || "application/octet-stream", size: file.size });
   };
 
   const clearPending = () => {
@@ -91,6 +130,7 @@ export default function MessageInput({ groupId, group, sendMessage }) {
       const snapshotContent = trimmed;
       setContent("");
       setPendingFile(null);
+      if (onClearReply) onClearReply();
 
       if (typeof sendMessage === "function") {
         await sendMessage({
@@ -99,23 +139,20 @@ export default function MessageInput({ groupId, group, sendMessage }) {
           fileName,
           fileType,
           fileSize,
+          replyTo: replyTo ? { id: replyTo.id, content: replyTo.content, senderName: replyTo.senderName } : null,
         });
       } else {
-        const isAuthorized =
-          user?.uid === group?.leaderId || userData?.role === "admin";
-        const moderationStatus =
-          fileUrl && !isAuthorized ? "pending" : "approved";
+        const isAuthorized = user?.uid === group?.leaderId || userData?.role === "admin";
+        const moderationStatus = fileUrl && !isAuthorized ? "pending" : "approved";
         await addDoc(collection(firestore, COL.MESSAGES), {
           groupId,
           uid: user.uid,
           content: snapshotContent,
           senderName: userData?.fullName || "Scholar",
           role: userData?.role || "student",
-          fileUrl,
-          fileName,
-          fileType,
-          fileSize,
+          fileUrl, fileName, fileType, fileSize,
           moderationStatus,
+          replyTo: replyTo ? { id: replyTo.id, content: replyTo.content, senderName: replyTo.senderName } : null,
           createdAt: serverTimestamp(),
         });
       }
@@ -131,8 +168,38 @@ export default function MessageInput({ groupId, group, sendMessage }) {
 
   return (
     <form onSubmit={handleSendMessage} className="flex flex-col gap-2">
-      {/* Pending file pill / error banner */}
       <AnimatePresence>
+        {/* Reply preview */}
+        {replyTo && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: 6, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="flex items-center gap-3 px-3 py-2 rounded-xl border-s-2 overflow-hidden"
+            style={{ background: "rgba(124, 131, 242, 0.06)", borderColor: "#7c83f2" }}
+          >
+            <Reply size={13} style={{ color: "#7c83f2", flexShrink: 0 }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-0.5" style={{ color: "#7c83f2" }}>
+                Replying to {replyTo.senderName || "Scholar"}
+              </p>
+              <p className="text-[11px] font-serif italic truncate text-ink dark:text-white/70">
+                {replyTo.content || "(attachment)"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClearReply}
+              className="p-1.5 rounded-lg hover:bg-white/10 transition"
+              aria-label="Cancel reply"
+            >
+              <X size={13} style={{ color: "#7c83f2" }} />
+            </button>
+          </motion.div>
+        )}
+
+        {/* Pending file pill */}
         {pendingFile && (
           <motion.div
             initial={{ opacity: 0, y: 6, height: 0 }}
@@ -140,29 +207,18 @@ export default function MessageInput({ groupId, group, sendMessage }) {
             exit={{ opacity: 0, y: 6, height: 0 }}
             transition={{ duration: 0.3 }}
             className="flex items-center gap-3 px-3 py-2 rounded-xl border"
-            style={{
-              background: "rgba(124, 131, 242, 0.08)",
-              borderColor: "rgba(124, 131, 242, 0.35)",
-            }}
+            style={{ background: "rgba(124, 131, 242, 0.08)", borderColor: "rgba(124, 131, 242, 0.35)" }}
           >
             <FileText size={14} style={{ color: "#7c83f2" }} />
             <div className="flex-1 min-w-0">
-              <p
-                className="text-[12px] font-serif italic truncate"
-                style={{ color: "#7c83f2" }}
-              >
+              <p className="text-[12px] font-serif italic truncate" style={{ color: "#7c83f2" }}>
                 {pendingFile.name}
               </p>
               <p className="text-[9px] uppercase tracking-[0.15em] text-ink-faint">
                 {(pendingFile.size / 1024).toFixed(1)} KB · will be queued for review
               </p>
             </div>
-            <button
-              type="button"
-              onClick={clearPending}
-              className="p-1.5 rounded-lg hover:bg-white/10 transition"
-              aria-label="Remove file"
-            >
+            <button type="button" onClick={clearPending} className="p-1.5 rounded-lg hover:bg-white/10 transition" aria-label="Remove file">
               <X size={14} style={{ color: "#7c83f2" }} />
             </button>
           </motion.div>
@@ -182,13 +238,42 @@ export default function MessageInput({ groupId, group, sendMessage }) {
 
       {/* Input row */}
       <div className="flex items-center gap-3 relative">
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={handlePickFile}
-          disabled={isMuted || isSending}
-        />
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handlePickFile} disabled={isMuted || isSending} />
+
+        {/* Emoji picker container */}
+        <div ref={emojiRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setShowEmoji((v) => !v)}
+            disabled={isMuted}
+            title="Insert emoji"
+            aria-label="Insert emoji"
+            className="p-3 rounded-full border border-sand/30 dark:border-white/10 hover:border-accent/60 hover:bg-accent/5 transition disabled:opacity-50"
+            style={{ color: "#7c83f2" }}
+          >
+            <Smile size={18} strokeWidth={2} />
+          </button>
+          <AnimatePresence>
+            {showEmoji && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 8 }}
+                transition={{ duration: 0.18 }}
+                className="absolute bottom-14 left-0 z-50"
+              >
+                <EmojiPicker
+                  onEmojiClick={handleEmojiClick}
+                  skinTonesDisabled
+                  height={380}
+                  width={320}
+                  previewConfig={{ showPreview: false }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -203,20 +288,14 @@ export default function MessageInput({ groupId, group, sendMessage }) {
 
         <div className="flex-1 bg-paper dark:bg-white/5 border border-sand/20 dark:border-white/10 rounded-[1.5rem] px-4 py-1 flex items-center transition-all focus-within:border-accent">
           <textarea
+            ref={textareaRef}
             disabled={isMuted}
             value={isMuted ? "The overseer has silenced this node…" : content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage(e);
-              }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); }
             }}
-            placeholder={
-              pendingFile
-                ? "Add a caption for the file (optional)…"
-                : "Signal your thoughts…"
-            }
+            placeholder={pendingFile ? "Add a caption for the file (optional)…" : "Signal your thoughts…"}
             className="w-full bg-transparent border-none py-3 text-sm focus:ring-0 resize-none max-h-32 italic font-serif placeholder:italic placeholder:font-serif placeholder:text-ink-faint"
             rows={1}
           />
@@ -228,16 +307,10 @@ export default function MessageInput({ groupId, group, sendMessage }) {
           aria-label="Send"
           title="Send"
           className={`p-4 rounded-full transition-all ${
-            isMuted
-              ? "bg-sand text-ink-faint"
-              : "bg-accent text-white shadow-lg shadow-accent/20 hover:bg-ink disabled:opacity-60"
+            isMuted ? "bg-sand text-ink-faint" : "bg-accent text-white shadow-lg shadow-accent/20 hover:bg-ink disabled:opacity-60"
           }`}
         >
-          {isSending || isUploading ? (
-            <Loader2 className="animate-spin" size={20} />
-          ) : (
-            <Send size={20} data-flip-rtl />
-          )}
+          {isSending || isUploading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} data-flip-rtl />}
         </button>
       </div>
     </form>

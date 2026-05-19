@@ -10,10 +10,12 @@ import { signOut } from "firebase/auth";
 import { useAuth } from "@/lib/useAuth";
 
 import TsswalLogo from "@/components/TsswalLogo";
+import { useTranslation } from "@/lib/i18n";
 
 export default function PendingPage() {
   const router = useRouter();
   const { user, userData, loading: authLoading } = useAuth();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!authLoading) {
@@ -62,7 +64,7 @@ export default function PendingPage() {
               Twassel
             </span>
             <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#7c83f2]">
-              Gateway Portal
+              {t("pending.portal")}
             </span>
           </div>
         </button>
@@ -87,11 +89,11 @@ export default function PendingPage() {
           </div>
 
           <h1 className="font-serif text-[32px] font-semibold leading-tight text-slate-800 dark:text-slate-50 mb-4">
-            Your account is under review
+            {t("pending.title")}
           </h1>
 
           <p className="text-[15px] leading-relaxed text-slate-500 dark:text-slate-400 mb-8">
-            Our admin team is reviewing your student ID. Your account will be activated within 24 hours.
+            {t("pending.desc")}
           </p>
 
           <div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full
@@ -103,7 +105,7 @@ export default function PendingPage() {
           <div className="flex flex-col gap-4 pt-6 border-t border-slate-50 dark:border-slate-800">
             <div className="flex items-center justify-center gap-2 text-[12px] font-bold uppercase tracking-widest text-emerald-500 bg-emerald-500/10 py-3 rounded-2xl">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Pending
+              {t("pending.status")}
             </div>
 
             <button
@@ -112,7 +114,7 @@ export default function PendingPage() {
                          text-slate-400 hover:text-rose-500 hover:bg-rose-500/5 transition-all"
             >
               <LogOut size={16} data-flip-rtl />
-              Log out
+              {t("pending.logout")}
             </button>
           </div>
         </motion.div>
@@ -120,7 +122,7 @@ export default function PendingPage() {
 
       <footer className="text-center py-8 relative z-10">
         <p className="text-[11px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-widest">
-          Oran University Network · Twassel
+          {t("pending.footer")}
         </p>
       </footer>
     </div>

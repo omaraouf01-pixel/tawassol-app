@@ -14,7 +14,11 @@ import {
     Loader2,
     X,
     Shield,
+    ShieldOff,
+    Crown,
+    AlertCircle,
 } from "lucide-react";
+import { api } from "@/lib/apiClient";
 import { firestore } from "@/lib/firebase";
 import {
     doc,
@@ -172,15 +176,17 @@ function ManageMembersModal({ group, onClose }) {
     const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [kickingId, setKickingId] = useState(null);
+    const [actionId, setActionId] = useState(null); // promote / demote in progress
+    const [leaderError, setLeaderError] = useState(null);
+
+    // Local leader state for instant UI feedback after API call
+    const [currentLeaderId, setCurrentLeaderId] = useState(group?.leaderId || null);
+    const [currentLeaderName, setCurrentLeaderName] = useState(group?.leaderName || null);
 
     useEffect(() => {
         let cancelled = false;
         const memberIds = Array.isArray(group?.members) ? group.members : [];
-        if (!memberIds.length) {
-            setMembers([]);
-            setLoading(false);
-            return;
-        }
+        if (!memberIds.length) { setMembers([]); setLoading(false); return; }
 
         setLoading(true);
         Promise.all(
@@ -188,26 +194,18 @@ function ManageMembersModal({ group, onClose }) {
                 try {
                     const snap = await getDoc(doc(firestore, COL.USERS, uid));
                     return snap.exists() ? { id: snap.id, ...snap.data() } : null;
-                } catch {
-                    return null;
-                }
+                } catch { return null; }
             })
         )
-            .then((rows) => {
-                if (!cancelled) setMembers(rows.filter(Boolean));
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
+            .then((rows) => { if (!cancelled) setMembers(rows.filter(Boolean)); })
+            .finally(() => { if (!cancelled) setLoading(false); });
 
         return () => { cancelled = true; };
     }, [group?.id, group?.members]);
 
     const handleKick = async (memberId) => {
-        if (!group?.id || kickingId) return;
-        if (memberId === group.leaderId) return;
-        if (!window.confirm("Are you sure you want to kick this member from the group?")) return;
-
+        if (!group?.id || kickingId || memberId === currentLeaderId) return;
+        if (!window.confirm("Remove this member from the group?")) return;
         setKickingId(memberId);
         try {
             await updateDoc(doc(firestore, COL.GROUPS, group.id), {
@@ -220,6 +218,44 @@ function ManageMembersModal({ group, onClose }) {
             alert("Could not remove member.");
         } finally {
             setKickingId(null);
+        }
+    };
+
+    const handleSetLeader = async (member) => {
+        if (actionId || member.id === currentLeaderId) return;
+        if (!window.confirm(`Promote "${member.fullName}" to group overseer?\nThe current overseer will become a regular member.`)) return;
+        setLeaderError(null);
+        setActionId(member.id);
+        try {
+            await api(`/api/admin/groups/${group.id}`, {
+                method: "PATCH",
+                body: { action: "setLeader", memberId: member.id },
+            });
+            setCurrentLeaderId(member.id);
+            setCurrentLeaderName(member.fullName || "Unknown");
+        } catch (err) {
+            setLeaderError(err.data?.error || err.message || "Failed to update leader.");
+        } finally {
+            setActionId(null);
+        }
+    };
+
+    const handleDemoteLeader = async () => {
+        if (actionId) return;
+        if (!window.confirm("Remove overseer status?\nThis group will have no leader until you assign one.")) return;
+        setLeaderError(null);
+        setActionId("demote");
+        try {
+            await api(`/api/admin/groups/${group.id}`, {
+                method: "PATCH",
+                body: { action: "removeLeader" },
+            });
+            setCurrentLeaderId(null);
+            setCurrentLeaderName(null);
+        } catch (err) {
+            setLeaderError(err.data?.error || err.message || "Failed to demote leader.");
+        } finally {
+            setActionId(null);
         }
     };
 
@@ -238,30 +274,51 @@ function ManageMembersModal({ group, onClose }) {
                 exit={{ opacity: 0, scale: 0.95, y: 10 }}
                 className="fixed inset-0 z-[210] flex items-center justify-center p-6 pointer-events-none"
             >
-                <div className="pointer-events-auto bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl border border-sand dark:border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
-                    <div className="px-6 py-5 border-b border-sand dark:border-white/5 bg-cream/40 dark:bg-white/[0.02] flex items-center justify-between">
+                <div className="pointer-events-auto bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl border border-sand dark:border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                    {/* Header */}
+                    <div className="px-6 py-5 border-b border-sand dark:border-white/5 bg-cream/40 dark:bg-white/[0.02] flex items-center justify-between shrink-0">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-accent/10 text-accent rounded-2xl flex items-center justify-center">
                                 <Users size={18} />
                             </div>
                             <div>
-                                <h3 className="font-display italic font-bold text-ink dark:text-white">
-                                    {group.name}
-                                </h3>
+                                <h3 className="font-display italic font-bold text-ink dark:text-white">{group.name}</h3>
                                 <p className="text-[9px] font-black uppercase tracking-[0.25em] text-ink-faint mt-1">
                                     {members.length} Members
+                                    {currentLeaderName && (
+                                        <span className="ml-2 text-emerald-500">· Overseer: {currentLeaderName}</span>
+                                    )}
                                 </p>
                             </div>
                         </div>
                         <button
                             onClick={onClose}
                             className="p-2 text-ink-faint hover:text-ink dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-                            aria-label="Close"
                         >
                             <X size={18} />
                         </button>
                     </div>
 
+                    {/* Legend */}
+                    <div className="px-6 pt-4 pb-2 shrink-0">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-ink-faint/60">
+                            <Crown size={9} className="inline mr-1 text-amber-400" />Promote member to overseer
+                            <span className="mx-2">·</span>
+                            <ShieldOff size={9} className="inline mr-1 text-rose-400" />Demote current overseer
+                            <span className="mx-2">·</span>
+                            <UserMinus size={9} className="inline mr-1 text-slate-400" />Remove from group
+                        </p>
+                    </div>
+
+                    {/* Error banner */}
+                    {leaderError && (
+                        <div className="mx-6 mb-2 flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 rounded-2xl shrink-0">
+                            <AlertCircle size={14} className="text-rose-500 shrink-0" />
+                            <p className="text-xs text-rose-600 dark:text-rose-400">{leaderError}</p>
+                        </div>
+                    )}
+
+                    {/* Members list */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-2">
                         {loading ? (
                             <div className="flex justify-center py-10">
@@ -273,13 +330,14 @@ function ManageMembersModal({ group, onClose }) {
                             </p>
                         ) : (
                             members.map((member) => {
-                                const isLeader = member.id === group.leaderId;
+                                const isLeader = member.id === currentLeaderId;
+                                const isProcessing = actionId === member.id || (isLeader && actionId === "demote");
                                 return (
                                     <div
                                         key={member.id}
-                                        className="flex items-center gap-3 p-3 rounded-2xl hover:bg-cream/60 dark:hover:bg-white/[0.03] transition-colors"
+                                        className={`flex items-center gap-3 p-3 rounded-2xl transition-colors ${isLeader ? "bg-emerald-50/60 dark:bg-emerald-500/5 border border-emerald-100 dark:border-emerald-500/10" : "hover:bg-cream/60 dark:hover:bg-white/[0.03]"}`}
                                     >
-                                        <div className="w-10 h-10 rounded-xl bg-accent/10 text-accent flex items-center justify-center font-display italic font-bold shrink-0">
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-display italic font-bold shrink-0 ${isLeader ? "bg-emerald-500/10 text-emerald-600" : "bg-accent/10 text-accent"}`}>
                                             {(member.fullName || "S")[0]?.toUpperCase()}
                                         </div>
                                         <div className="flex-1 min-w-0">
@@ -292,19 +350,49 @@ function ManageMembersModal({ group, onClose }) {
                                             </p>
                                         </div>
 
-                                        {!isLeader && (
-                                            <button
-                                                onClick={() => handleKick(member.id)}
-                                                disabled={kickingId === member.id}
-                                                className="p-2 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title="Remove member"
-                                                aria-label="Remove member"
-                                            >
-                                                {kickingId === member.id
-                                                    ? <Loader2 size={14} className="animate-spin" />
-                                                    : <UserMinus size={14} />}
-                                            </button>
-                                        )}
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            {isLeader ? (
+                                                /* Demote leader */
+                                                <button
+                                                    onClick={handleDemoteLeader}
+                                                    disabled={!!actionId}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Remove overseer status"
+                                                >
+                                                    {actionId === "demote"
+                                                        ? <Loader2 size={12} className="animate-spin" />
+                                                        : <ShieldOff size={12} />}
+                                                    Demote
+                                                </button>
+                                            ) : (
+                                                /* Promote to leader */
+                                                <button
+                                                    onClick={() => handleSetLeader(member)}
+                                                    disabled={!!actionId}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-600 hover:bg-amber-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Promote to overseer"
+                                                >
+                                                    {actionId === member.id
+                                                        ? <Loader2 size={12} className="animate-spin" />
+                                                        : <Crown size={12} />}
+                                                    Promote
+                                                </button>
+                                            )}
+
+                                            {/* Kick — disabled for current leader */}
+                                            {!isLeader && (
+                                                <button
+                                                    onClick={() => handleKick(member.id)}
+                                                    disabled={!!kickingId || !!actionId}
+                                                    className="p-2 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                    title="Remove from group"
+                                                >
+                                                    {kickingId === member.id
+                                                        ? <Loader2 size={14} className="animate-spin" />
+                                                        : <UserMinus size={14} />}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 );
                             })

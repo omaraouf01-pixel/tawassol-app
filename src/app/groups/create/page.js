@@ -4,10 +4,8 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus, Shield, Hash, Loader2, ChevronLeft,
-  Send, Sparkles, School, Book, GraduationCap,
-  Search, X, Check, ArrowRight, ArrowLeft,
-  Zap, Lock
+  Loader2, ChevronLeft, Sparkles, School, Book, GraduationCap,
+  ArrowRight, ArrowLeft, Zap, Lock
 } from "lucide-react";
 
 // Firebase & Auth
@@ -19,55 +17,7 @@ import { UNIVERSITIES, MAJORS, LEVELS } from "@/lib/academicData";
 
 // Components
 import TsswalLogo from "@/components/TsswalLogo";
-
-/* ─── مكون النافذة المنبثقة (Selection Modal) ─── */
-const SelectionModal = ({ isOpen, onClose, title, options, onSelect, selectedValue }) => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const filtered = options.filter(opt => opt.toLowerCase().includes(searchTerm.toLowerCase()));
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-md"
-        >
-          <motion.div
-            initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-            className="w-full max-w-md bg-[#F8F8F5] dark:bg-[#0a0a0b] border border-slate-200 dark:border-white/5 rounded-[2.5rem] p-8 shadow-2xl relative"
-          >
-            <button type="button" onClick={onClose} className="absolute top-8 right-8 text-slate-400 hover:text-[#7c83f2] transition-colors">
-              <X size={20} />
-            </button>
-            <h2 className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#7c83f2] mb-6">Select {title}</h2>
-
-            <div className="relative mb-6">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input
-                type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-4 pl-12 pr-4 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-[#7c83f2]/20 transition-all"
-              />
-            </div>
-
-            <div className="max-h-[250px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-              {filtered.map((opt) => (
-                <button
-                  key={opt} type="button" onClick={() => { onSelect(opt); onClose(); setSearchTerm(""); }}
-                  className={`w-full text-left p-4 rounded-xl text-sm font-semibold transition-all flex justify-between items-center ${selectedValue === opt
-                    ? "bg-[#7c83f2] text-white shadow-lg"
-                    : "bg-white dark:bg-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"
-                    }`}
-                >
-                  {opt} {selectedValue === opt && <Check size={16} />}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-};
+import SelectionModal from "@/components/SelectionModal";
 
 export default function CreateGroupPage() {
   const router = useRouter();
@@ -88,7 +38,7 @@ export default function CreateGroupPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.university || !form.major) {
+    if (!form.name) {
       alert("Please complete the required fields.");
       return;
     }
@@ -132,7 +82,7 @@ export default function CreateGroupPage() {
       <header className="max-w-[1360px] w-full mx-auto px-6 lg:px-10 py-6 flex justify-between items-center relative z-20 border-b border-slate-200/50 dark:border-white/5">
         <div className="flex items-center gap-6">
           <button
-            onClick={() => router.back()}
+            onClick={() => router.push("/groups/join")}
             className="p-2 rounded-xl bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-500 hover:text-[#7c83f2] transition-all shadow-sm"
           >
             <ArrowLeft size={20} />
@@ -153,7 +103,7 @@ export default function CreateGroupPage() {
             className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 sm:p-14 shadow-xl border border-slate-100 dark:border-slate-800"
           >
             <button
-              onClick={() => router.back()}
+              onClick={() => router.push("/groups/join")}
               className="flex items-center gap-2 text-slate-400 hover:text-[#7c83f2] mb-8 transition-colors text-[10px] font-bold uppercase tracking-[0.2em]"
             >
               <ChevronLeft size={14} /> Back
@@ -188,9 +138,9 @@ export default function CreateGroupPage() {
                 <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-2">Academic Sphere</label>
                 <div className="grid grid-cols-1 gap-4">
                   {[
-                    { label: "University", val: form.university, opts: UNIVERSITIES, icon: School, type: "university" },
-                    { label: "Major / Specialty", val: form.major, opts: MAJORS, icon: Book, type: "major" },
-                    { label: "Academic Level", val: form.level, opts: LEVELS, icon: GraduationCap, type: "level" },
+                    { label: "University", val: form.university, opts: UNIVERSITIES, icon: School, type: "university", required: false },
+                    { label: "Major / Specialty", val: form.major, opts: MAJORS, icon: Book, type: "major", required: false },
+                    { label: "Academic Level", val: form.level, opts: LEVELS, icon: GraduationCap, type: "level", required: false },
                   ].map((f) => (
                     <button
                       key={f.label} type="button"
@@ -202,7 +152,12 @@ export default function CreateGroupPage() {
                           <f.icon size={20} strokeWidth={1.5} />
                         </div>
                         <div>
-                          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">{f.label}</p>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                            {f.label}
+                            {!f.required && (
+                              <span className="ml-2 normal-case tracking-normal font-medium text-slate-300 dark:text-slate-600">— اختياري</span>
+                            )}
+                          </p>
                           <p className="text-[14px] font-bold text-slate-700 dark:text-slate-200 mt-0.5">{f.val || `Select ${f.label}...`}</p>
                         </div>
                       </div>
@@ -281,7 +236,7 @@ export default function CreateGroupPage() {
               </AnimatePresence>
 
               <button
-                disabled={isSubmitting || !form.name || !form.university || !form.major}
+                disabled={isSubmitting}
                 type="submit"
                 className="w-full py-6 bg-[#7c83f2] text-white rounded-[1.5rem] font-bold uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-[#7c83f2]/30 hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-4 disabled:opacity-40"
               >
@@ -298,10 +253,6 @@ export default function CreateGroupPage() {
         onSelect={(val) => setForm({ ...form, [modal.type]: val })}
       />
 
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(124, 131, 242, 0.2); border-radius: 10px; }
-      `}</style>
     </div>
   );
 }

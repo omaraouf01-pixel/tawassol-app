@@ -13,4 +13,5 @@ export const COL = {
   NOTIFICATIONS: "notifications",
   RESOURCES: "resources",
   JOIN_REQUESTS: "join-requests",
+  REPORTS: "reports",
 };
